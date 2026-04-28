@@ -1,0 +1,33 @@
+{
+  "name": "elad-and-oren",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:push": "drizzle-kit push",
+    "db:reset": "node -e \"require('fs').rmSync('./data.db',{force:true})\" && npm run db:push"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.36.4",
+    "lucide-react": "^0.468.0",
+    "next": "^15.1.9",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "tailwind-merge": "^2.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "autoprefixer": "^10.4.20",
+    "drizzle-kit": "^0.28.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
