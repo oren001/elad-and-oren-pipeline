@@ -27,7 +27,10 @@
       "Bash(awk '{print $5}')",
       "Bash(xargs -I{} taskkill /PID {} /F)",
       "Bash(git push *)",
-      "Bash(vercel deploy *)"
+      "Bash(vercel deploy *)",
+      "Bash(vercel build *)",
+      "Bash(vercel pull *)",
+      "Bash(vercel git *)"
     ]
   }
 }
