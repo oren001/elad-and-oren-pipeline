@@ -23,7 +23,11 @@
       "Bash(git commit *)",
       "Bash(gh auth *)",
       "mcp__Claude_in_Chrome__tabs_context_mcp",
-      "Bash(npm uninstall *)"
+      "Bash(npm uninstall *)",
+      "Bash(awk '{print $5}')",
+      "Bash(xargs -I{} taskkill /PID {} /F)",
+      "Bash(git push *)",
+      "Bash(vercel deploy *)"
     ]
   }
 }
