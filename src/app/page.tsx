@@ -1,4 +1,5 @@
 import { submitLead } from "@/lib/actions/intake";
+import { VoiceButton } from "@/components/VoiceButton";
 
 export default function IntakePage() {
   return (
@@ -69,13 +70,19 @@ export default function IntakePage() {
               <label className="label block mb-1.5" htmlFor="description">
                 What do you want to build? <span className="text-red-500">*</span>
               </label>
+
+              {/* Voice button — client island */}
+              <div className="mb-3 flex justify-center">
+                <VoiceButton targetId="description" />
+              </div>
+
               <textarea
                 id="description"
                 name="description"
                 required
                 rows={5}
                 className="input resize-none"
-                placeholder="Describe your idea — what problem it solves, who uses it, any features you have in mind..."
+                placeholder="Describe your idea — or hit the mic button above to speak it…"
               />
             </div>
 
