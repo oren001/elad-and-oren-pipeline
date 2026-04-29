@@ -34,7 +34,21 @@
       "Bash(rm -rf .vercel)",
       "Bash(vercel link *)",
       "Bash(git remote *)",
-      "Bash(vercel env *)"
+      "Bash(vercel env *)",
+      "Bash(node insert_pipeline.mjs)",
+      "Bash(npx wrangler *)",
+      "Bash(vercel logs *)",
+      "Bash(vercel inspect *)",
+      "Bash(curl -s https://elad-oren-v3.vercel.app)",
+      "Bash(curl -s -o - -w \"\\\\nHTTP: %{http_code}\" --cookie \"admin_session=1\" https://elad-oren-v3.vercel.app/admin)",
+      "Bash(gh api *)",
+      "Bash(curl -s -o - -w \"\\\\nHTTP: %{http_code}\" --cookie \"admin_session=1\" https://elad-oren-pipeline.vercel.app/admin)",
+      "Read(//c/Users/oren weiss/.local/share/**)",
+      "Read(//c/Users/oren weiss/.config/**)",
+      "Bash(curl -s 'https://api.vercel.com/v3/deployments/dpl_J4rhnvNqVWQMHz7qWtbkYSTbV667/events?limit=50' -H 'Authorization: Bearer vca_8UmGb5PllRcdTdRDWkZSw4xAJXWmgIfYgYwW7jQe7sFfsV5oh72sxwie')",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s https://api.vercel.com/v2/deployments/dpl_J4rhnvNqVWQMHz7qWtbkYSTbV667/files -H 'Authorization: Bearer vca_8UmGb5PllRcdTdRDWkZSw4xAJXWmgIfYgYwW7jQe7sFfsV5oh72sxwie' -H 'teamId: team_wg2T3uKG4WiEWkMQKpUzE3Ko')",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d,indent=2\\)[:500]\\)\")"
     ]
   }
 }
