@@ -3,8 +3,39 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Loader2 } from "lucide-react";
 
+// ── Minimal type shim for Web Speech API (not in all TS lib versions) ──────
+interface ISpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: ISpeechRecognitionEvent) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+}
+interface ISpeechRecognitionResult {
+  isFinal: boolean;
+  [index: number]: { transcript: string };
+}
+interface ISpeechRecognitionEvent {
+  resultIndex: number;
+  results: ISpeechRecognitionResult[] & { length: number };
+}
+type SpeechRecognitionConstructor = new () => ISpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
+// ──────────────────────────────────────────────────────────────────────────
+
 interface VoiceButtonProps {
-  targetId: string; // id of the textarea to fill
+  /** id of the <textarea> to write transcript into */
+  targetId: string;
 }
 
 type RecordingState = "idle" | "recording" | "unsupported";
@@ -12,29 +43,25 @@ type RecordingState = "idle" | "recording" | "unsupported";
 export function VoiceButton({ targetId }: VoiceButtonProps) {
   const [state, setState] = useState<RecordingState>("idle");
   const [interim, setInterim] = useState("");
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<ISpeechRecognition | null>(null);
   const finalRef = useRef(""); // accumulates confirmed transcript text
 
   useEffect(() => {
-    const SpeechRecognition =
-      (window as unknown as { SpeechRecognition?: typeof globalThis.SpeechRecognition; webkitSpeechRecognition?: typeof globalThis.SpeechRecognition })
-        .SpeechRecognition ??
-      (window as unknown as { webkitSpeechRecognition?: typeof globalThis.SpeechRecognition })
-        .webkitSpeechRecognition;
+    const SR: SpeechRecognitionConstructor | undefined =
+      window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
+    if (!SR) {
       setState("unsupported");
       return;
     }
 
-    const recognition = new SpeechRecognition();
+    const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-AU";
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: ISpeechRecognitionEvent) => {
       let interimText = "";
-
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -43,26 +70,16 @@ export function VoiceButton({ targetId }: VoiceButtonProps) {
           interimText += result[0].transcript;
         }
       }
-
       setInterim(interimText);
 
-      // Push to textarea
       const el = document.getElementById(targetId) as HTMLTextAreaElement | null;
       if (el) {
         el.value = finalRef.current + interimText;
-        // Trigger React's synthetic change so the form picks it up
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype,
-          "value"
-        )?.set;
-        if (nativeInputValueSetter) {
-          nativeInputValueSetter.call(el, el.value);
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-        }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
       }
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: { error: string }) => {
       console.error("Speech recognition error:", event.error);
       setState("idle");
     };
@@ -87,7 +104,7 @@ export function VoiceButton({ targetId }: VoiceButtonProps) {
       recognition.stop();
       setState("idle");
     } else {
-      // Seed finalRef with whatever is already in the textarea
+      // Pre-seed with whatever is already typed
       const el = document.getElementById(targetId) as HTMLTextAreaElement | null;
       const existing = el?.value?.trim() ?? "";
       finalRef.current = existing ? existing + " " : "";
@@ -99,7 +116,7 @@ export function VoiceButton({ targetId }: VoiceButtonProps) {
   if (state === "unsupported") {
     return (
       <p className="text-xs text-ink-400 mt-1">
-        🎤 Voice input isn&apos;t supported in this browser. Try Chrome or Edge.
+        Voice input isn&apos;t supported in this browser. Try Chrome or Edge.
       </p>
     );
   }
@@ -109,18 +126,16 @@ export function VoiceButton({ targetId }: VoiceButtonProps) {
       <button
         type="button"
         onClick={toggle}
-        className={`relative flex items-center justify-center w-20 h-20 rounded-full transition-all duration-200 shadow-lg focus:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 ${
-          state === "recording"
-            ? "bg-red-500 hover:bg-red-600 focus-visible:ring-red-300 scale-110"
-            : "bg-red-500 hover:bg-red-600 focus-visible:ring-red-300"
+        className={`relative flex items-center justify-center w-20 h-20 rounded-full shadow-lg focus:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-red-300 bg-red-500 hover:bg-red-600 transition-transform duration-200 ${
+          state === "recording" ? "scale-110" : ""
         }`}
         aria-label={state === "recording" ? "Stop recording" : "Start voice recording"}
       >
         {/* Pulse rings when recording */}
         {state === "recording" && (
           <>
-            <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60 animate-ping" />
-            <span className="absolute inline-flex h-[140%] w-[140%] rounded-full bg-red-300 opacity-30 animate-ping [animation-delay:0.3s]" />
+            <span className="absolute inset-0 rounded-full bg-red-400 opacity-60 animate-ping" />
+            <span className="absolute -inset-3 rounded-full bg-red-300 opacity-30 animate-ping [animation-delay:300ms]" />
           </>
         )}
         {state === "recording" ? (
@@ -130,19 +145,19 @@ export function VoiceButton({ targetId }: VoiceButtonProps) {
         )}
       </button>
 
-      <p className="text-sm text-ink-500 text-center">
+      <p className="text-sm text-ink-500 text-center min-h-[1.25rem]">
         {state === "recording" ? (
-          <span className="flex items-center gap-1.5 text-red-600 font-medium">
+          <span className="inline-flex items-center gap-1.5 text-red-600 font-medium">
             <Loader2 size={14} className="animate-spin" />
             Recording… tap to stop
           </span>
         ) : (
-          "Tap to describe your project by voice"
+          "Tap the mic to describe your project by voice"
         )}
       </p>
 
       {interim && (
-        <p className="text-xs text-ink-400 italic text-center max-w-xs">
+        <p className="text-xs text-ink-400 italic text-center max-w-xs truncate">
           &ldquo;{interim}&rdquo;
         </p>
       )}
