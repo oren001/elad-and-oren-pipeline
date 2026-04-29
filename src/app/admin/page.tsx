@@ -1,12 +1,13 @@
 export const dynamic = "force-dynamic";
 
 import { desc } from "drizzle-orm";
-import { db, schema } from "@/lib/db";
+import { getDb, schema } from "@/lib/db";
 import { STAGES } from "@/lib/db/schema";
 import { TopBar } from "@/components/TopBar";
 import { StageColumn } from "@/components/StageColumn";
 
 export default async function PipelinePage() {
+  const db = getDb();
   const allLeads = await db
     .select()
     .from(schema.leads)

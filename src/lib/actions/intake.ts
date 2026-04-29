@@ -1,6 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
-import { db, schema } from "@/lib/db";
+import { getDb, schema } from "@/lib/db";
 
 export async function submitLead(formData: FormData) {
   const name = (formData.get("name") as string | null)?.trim();
@@ -9,6 +9,7 @@ export async function submitLead(formData: FormData) {
 
   if (!name || !email || !description) return;
 
+  const db = getDb();
   const id = crypto.randomUUID();
   await db.insert(schema.leads).values({
     id,

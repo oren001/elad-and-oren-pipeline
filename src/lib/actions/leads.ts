@@ -2,10 +2,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { db, schema } from "@/lib/db";
+import { getDb, schema } from "@/lib/db";
 import type { Stage } from "@/lib/db/schema";
 
 export async function moveStage(leadId: string, stage: Stage) {
+  const db = getDb();
   await db
     .update(schema.leads)
     .set({ stage, updatedAt: new Date() })
@@ -16,6 +17,7 @@ export async function moveStage(leadId: string, stage: Stage) {
 
 export async function addNote(leadId: string, author: string, body: string) {
   if (!body.trim()) return;
+  const db = getDb();
   await db.insert(schema.notes).values({
     id: crypto.randomUUID(),
     leadId,
@@ -34,6 +36,7 @@ export async function updateLead(
     projectValue?: number | null;
   }
 ) {
+  const db = getDb();
   await db
     .update(schema.leads)
     .set({ ...data, updatedAt: new Date() })
@@ -43,6 +46,7 @@ export async function updateLead(
 }
 
 export async function deleteLead(leadId: string) {
+  const db = getDb();
   await db
     .update(schema.leads)
     .set({ stage: "cancelled", updatedAt: new Date() })

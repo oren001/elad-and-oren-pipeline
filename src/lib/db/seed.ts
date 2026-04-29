@@ -1,6 +1,7 @@
-import { db, schema } from "./index";
+import { getDb, schema } from "./index";
 
 async function seed() {
+  const db = getDb();
   await db.insert(schema.leads).values([
     {
       id: crypto.randomUUID(),

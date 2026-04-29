@@ -1,11 +1,15 @@
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/neon-http";
+import { neon } from "@neondatabase/serverless";
 import * as schema from "./schema";
 
-const client = createClient({
-  url: process.env.DATABASE_URL ?? "file:./data.db",
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
+// Lazy singleton — only connects when first query runs, not at import time
+let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
-export const db = drizzle(client, { schema });
+export function getDb() {
+  if (!_db) {
+    _db = drizzle(neon(process.env.DATABASE_URL!), { schema });
+  }
+  return _db;
+}
+
 export { schema };

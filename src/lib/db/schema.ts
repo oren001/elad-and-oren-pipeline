@@ -1,15 +1,8 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
+import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
 
 const id = () => text("id").primaryKey();
-const createdAt = () =>
-  integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`);
-const updatedAt = () =>
-  integer("updated_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`);
+const createdAt = () => timestamp("created_at").notNull().defaultNow();
+const updatedAt = () => timestamp("updated_at").notNull().defaultNow();
 
 export type Stage =
   | "new_lead"
@@ -32,7 +25,7 @@ export const STAGES: Stage[] = [
   "cancelled",
 ];
 
-export const leads = sqliteTable("leads", {
+export const leads = pgTable("leads", {
   id: id(),
   name: text("name").notNull(),
   email: text("email").notNull(),
@@ -40,20 +33,7 @@ export const leads = sqliteTable("leads", {
   description: text("description").notNull(),
   budget: text("budget"),
   timeline: text("timeline"),
-  stage: text("stage", {
-    enum: [
-      "new_lead",
-      "scoping",
-      "proposal_sent",
-      "approved",
-      "in_build",
-      "review",
-      "done",
-      "cancelled",
-    ],
-  })
-    .notNull()
-    .default("new_lead"),
+  stage: text("stage").$type<Stage>().notNull().default("new_lead"),
   assignedTo: text("assigned_to"),
   proposalUrl: text("proposal_url"),
   contractUrl: text("contract_url"),
@@ -62,7 +42,7 @@ export const leads = sqliteTable("leads", {
   updatedAt: updatedAt(),
 });
 
-export const notes = sqliteTable("notes", {
+export const notes = pgTable("notes", {
   id: id(),
   leadId: text("lead_id")
     .notNull()

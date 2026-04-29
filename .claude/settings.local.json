@@ -20,7 +20,10 @@
       "PowerShell($env:TURSO_INSTALL = \"$env:USERPROFILE\\\\.turso\"; irm https://get.turso.tech/windows.ps1 | iex 2>&1 | Select-Object -Last 15)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(gh auth *)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(npm uninstall *)"
     ]
   }
 }
