@@ -30,7 +30,11 @@
       "Bash(vercel deploy *)",
       "Bash(vercel build *)",
       "Bash(vercel pull *)",
-      "Bash(vercel git *)"
+      "Bash(vercel git *)",
+      "Bash(rm -rf .vercel)",
+      "Bash(vercel link *)",
+      "Bash(git remote *)",
+      "Bash(vercel env *)"
     ]
   }
 }
