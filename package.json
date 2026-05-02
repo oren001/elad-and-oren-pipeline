@@ -10,6 +10,7 @@
     "db:reset": "node -e \"require('fs').rmSync('./data.db',{force:true})\" && npm run db:push"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
     "@neondatabase/serverless": "0.9.5",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.36.4",
