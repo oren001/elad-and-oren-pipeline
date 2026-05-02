@@ -32,15 +32,29 @@ class OsNotificationListenerService : NotificationListenerService() {
             isOngoing = sbn.isOngoing,
         )
         _events.tryEmit(event)
+        synchronized(buffer) {
+            buffer.add(event)
+            while (buffer.size > BUFFER_LIMIT) buffer.removeAt(0)
+        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {}
 
     companion object {
+        private const val BUFFER_LIMIT = 100
+        private val buffer = mutableListOf<NotificationEvent>()
         private val _events = MutableSharedFlow<NotificationEvent>(
             replay = 0, extraBufferCapacity = 32,
         )
         val events = _events.asSharedFlow()
+
+        /** Snapshot of recent captured notifications, newest last. */
+        fun recent(limit: Int = 20, packageFilter: String? = null): List<NotificationEvent> {
+            val snap = synchronized(buffer) { buffer.toList() }
+            val filtered = if (packageFilter == null) snap
+            else snap.filter { it.packageName.contains(packageFilter, ignoreCase = true) }
+            return filtered.takeLast(limit)
+        }
     }
 }
 

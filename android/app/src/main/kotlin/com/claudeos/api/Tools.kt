@@ -100,6 +100,18 @@ object Tools {
             RiskTier.LOW, required = listOf("query_or_url")) {
             putJsonObject("query_or_url") { put("type", "string") }
         },
+        tool("read_screen", "Read the current foreground app's on-screen content (text + clickable elements). Requires the user to have enabled the Claude OS accessibility service. Useful for inspecting WhatsApp, Maps, banking, or any other app the user is currently viewing.",
+            RiskTier.LOW) {
+        },
+        tool("read_recent_notifications", "Return recent notifications captured by the launcher's notification listener (texts, WhatsApp/Slack/etc messages, calendar reminders). Requires the user to have enabled notification access for Claude OS.",
+            RiskTier.LOW) {
+            putJsonObject("limit") { put("type", "integer"); put("description", "Max notifications to return (default 20)") }
+            putJsonObject("from_app") { put("type", "string"); put("description", "Optional package-name substring filter, e.g. 'whatsapp', 'gmail', 'messaging'") }
+        },
+        tool("wait_ms", "Pause for a given number of milliseconds. Useful between open_app and read_screen so the launched app has time to render.",
+            RiskTier.LOW, required = listOf("ms")) {
+            putJsonObject("ms") { put("type", "integer"); put("description", "Milliseconds to wait, capped at 5000.") }
+        },
         tool("interrupt_user", "Show a prominent in-launcher notification interrupting the user with an important message (incoming text from a key person, calendar reminder, etc).",
             RiskTier.LOW, required = listOf("headline")) {
             putJsonObject("headline") { put("type", "string") }

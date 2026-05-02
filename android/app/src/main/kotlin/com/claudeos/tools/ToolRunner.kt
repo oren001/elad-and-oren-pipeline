@@ -13,12 +13,16 @@ import com.claudeos.MainActivity
 import com.claudeos.R
 import com.claudeos.api.PendingClientTool
 import com.claudeos.api.ToolResult
+import com.claudeos.services.OsAccessibilityService
+import com.claudeos.services.OsNotificationListenerService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 
 /**
  * Executes client-side tool calls by dispatching the right Android intent or
@@ -40,6 +44,9 @@ class ToolRunner(private val ctx: Context) {
                 "pay" -> stub(call, "payment bridge not yet connected")
                 "web_browse" -> webBrowse(call)
                 "interrupt_user" -> interruptUser(call)
+                "read_screen" -> readScreen(call)
+                "read_recent_notifications" -> readRecentNotifications(call)
+                "wait_ms" -> waitMs(call)
                 else -> error(call, "unknown tool: ${call.name}")
             }
         } catch (e: Exception) {
@@ -137,6 +144,47 @@ class ToolRunner(private val ctx: Context) {
         val mgr = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         mgr.notify(headline.hashCode(), notif)
         return ok(call, """{"shown":true}""")
+    }
+
+    private fun readScreen(call: PendingClientTool): ToolResult {
+        val svc = OsAccessibilityService.instance
+            ?: return error(call, "Accessibility service not enabled. Ask the user to enable Settings → Accessibility → Claude OS.")
+        val dump = svc.dumpScreen()
+        val payload = buildJsonObject {
+            put("ok", true)
+            put("screen", dump.take(8000))
+        }
+        return ok(call, payload.toString())
+    }
+
+    private fun readRecentNotifications(call: PendingClientTool): ToolResult {
+        val limit = (call.input["limit"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 20
+        val from = call.input.s("from_app")
+        val notifs = OsNotificationListenerService.recent(limit = limit, packageFilter = from)
+        if (notifs.isEmpty() && from != null) {
+            return ok(call, """{"ok":true,"note":"no recent notifications matching '$from' (also check that notification access is enabled for Claude OS)","notifications":[]}""")
+        }
+        val payload = buildJsonObject {
+            put("ok", true)
+            putJsonArray("notifications") {
+                notifs.forEach { ev ->
+                    add(buildJsonObject {
+                        put("from", ev.packageName)
+                        put("title", ev.title)
+                        put("text", ev.text)
+                        put("at_ms", ev.postTime)
+                        put("ongoing", ev.isOngoing)
+                    })
+                }
+            }
+        }
+        return ok(call, payload.toString())
+    }
+
+    private suspend fun waitMs(call: PendingClientTool): ToolResult {
+        val ms = ((call.input["ms"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 500L).coerceIn(0, 5000)
+        kotlinx.coroutines.delay(ms)
+        return ok(call, """{"waited_ms":$ms}""")
     }
 
     private fun stub(call: PendingClientTool, note: String): ToolResult {
