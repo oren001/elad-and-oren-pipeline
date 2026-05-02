@@ -88,12 +88,12 @@ private fun RenderNode(node: Node, onAction: (Action) -> Unit, onPhoto: (String)
             node.children.forEach { RenderNode(it, onAction, onPhoto) }
         }
         is Node.Row -> Row(
-            horizontalArrangement = Arrangement.spacedBy((node.gap ?: 8).dp, when (node.align) {
-                "center" -> Alignment.CenterHorizontally
-                "end" -> Alignment.End
-                "between" -> Alignment.SpaceBetween
-                else -> Alignment.Start
-            }),
+            horizontalArrangement = when (node.align) {
+                "between" -> Arrangement.SpaceBetween
+                "center" -> Arrangement.spacedBy((node.gap ?: 8).dp, Alignment.CenterHorizontally)
+                "end" -> Arrangement.spacedBy((node.gap ?: 8).dp, Alignment.End)
+                else -> Arrangement.spacedBy((node.gap ?: 8).dp, Alignment.Start)
+            },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             node.children.forEach { RenderNode(it, onAction, onPhoto) }
