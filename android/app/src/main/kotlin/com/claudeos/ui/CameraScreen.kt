@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -91,7 +92,7 @@ fun CameraScreen(prompt: String?, onCapture: (String) -> Unit) {
                 .clip(CircleShape)
                 .background(Color.White)
                 .pointerInput(imageCapture) {
-                    detectTapToCapture { takePhoto(ctx, imageCapture, executor, onCapture) }
+                    detectTapGestures(onTap = { takePhoto(ctx, imageCapture, executor, onCapture) })
                 },
         )
 
@@ -103,10 +104,6 @@ fun CameraScreen(prompt: String?, onCapture: (String) -> Unit) {
     }
 
     DisposableEffect(Unit) { onDispose { (executor as? java.util.concurrent.ExecutorService)?.shutdown() } }
-}
-
-private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectTapToCapture(onTap: () -> Unit) {
-    androidx.compose.foundation.gestures.detectTapGestures(onTap = { onTap() })
 }
 
 private fun bindCamera(

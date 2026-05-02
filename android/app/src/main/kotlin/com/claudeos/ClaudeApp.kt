@@ -20,7 +20,7 @@ class ClaudeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         memory = MemoryStore(this)
-        claude = ClaudeClient { runBlocking { Settings.getApiKey(this@ClaudeApp) } }
+        claude = ClaudeClient(getApiKey = { runBlocking { Settings.getApiKey(this@ClaudeApp) } })
         toolRunner = ToolRunner(this)
         voiceOut = VoiceOut(this)
     }
