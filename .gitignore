@@ -1,9 +1,7 @@
-.env.local
-.env*.local
-node_modules/
-.next/
-data.db
-drizzle/
-
+node_modules
+.next
 .vercel
-.env*.local
+.wrangler
+.env*
+*.log
+.DS_Store

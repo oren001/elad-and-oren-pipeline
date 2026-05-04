@@ -1,36 +1,52 @@
 import type { Config } from "tailwindcss";
 
-export default {
+const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        brand: {
-          DEFAULT: "#6c47ff",
-          50: "#f3f0ff",
-          100: "#e9e4ff",
-          200: "#d4caff",
-          500: "#6c47ff",
-          600: "#5835e0",
-          700: "#4527b8",
-        },
-        ink: {
-          50: "#f7f8fa",
-          100: "#eef0f4",
-          200: "#dde1e8",
-          300: "#c2c8d2",
-          400: "#8a93a3",
-          500: "#5a6372",
-          600: "#3f4856",
-          700: "#2b323d",
-          800: "#1b2028",
-          900: "#0e1217",
+        smoke: {
+          50: "#f1f7f0",
+          100: "#dfeede",
+          200: "#bcdcb9",
+          300: "#8fc28b",
+          400: "#5fa05a",
+          500: "#3f8038",
+          600: "#2d6628",
+          700: "#234f1f",
+          800: "#1c3d18",
+          900: "#142c11",
+          950: "#0a1908",
         },
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans: [
+          "Heebo",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "sans-serif",
+        ],
+      },
+      keyframes: {
+        drift: {
+          "0%": { transform: "translateY(0) translateX(0)", opacity: "0.4" },
+          "50%": { opacity: "0.7" },
+          "100%": { transform: "translateY(-200px) translateX(40px)", opacity: "0" },
+        },
+        sway: {
+          "0%, 100%": { transform: "translateX(0)" },
+          "50%": { transform: "translateX(8px)" },
+        },
+      },
+      animation: {
+        drift: "drift 9s ease-in infinite",
+        sway: "sway 6s ease-in-out infinite",
       },
     },
   },
   plugins: [],
-} satisfies Config;
+};
+
+export default config;
