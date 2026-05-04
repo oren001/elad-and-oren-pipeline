@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Leaf, Flame } from "lucide-react";
+import {
+  Send,
+  Leaf,
+  Flame,
+  Sparkles,
+  ImageIcon,
+  X,
+  Copy,
+  Check,
+} from "lucide-react";
 
 type Mood =
   | "chill"
@@ -16,6 +25,10 @@ type Msg = {
   role: "me" | "bot";
   text: string;
   mood?: Mood;
+  imageUrl?: string;
+  imagePrompt?: string;
+  imageStatus?: "pending" | "awaiting" | "ready" | "error";
+  approveUrl?: string;
 };
 
 const MOOD_LABEL: Record<Mood, string> = {
@@ -52,6 +65,7 @@ export default function Page() {
   ]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [imagineOpen, setImagineOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -98,6 +112,130 @@ export default function Page() {
     } finally {
       setPending(false);
       inputRef.current?.focus();
+    }
+  }
+
+  async function imagine(prompt: string, refFile: File | null) {
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+
+    const userBubbleText = refFile
+      ? `🎨 ${trimmed}  (תמונת התייחסות מצורפת)`
+      : `🎨 ${trimmed}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: uid(), role: "me", text: userBubbleText },
+    ]);
+
+    const placeholderId = uid();
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: placeholderId,
+        role: "bot",
+        text: "המסטולון מצייר... רגע אחי 🟢",
+        imagePrompt: trimmed,
+        imageStatus: "pending",
+      },
+    ]);
+
+    try {
+      let refImageId: string | null = null;
+      if (refFile) {
+        const fd = new FormData();
+        fd.append("file", refFile);
+        const up = await fetch("/api/imagine/upload", {
+          method: "POST",
+          body: fd,
+        });
+        if (!up.ok) throw new Error("upload_failed");
+        const upData = (await up.json()) as { imageId?: string };
+        if (!upData.imageId) throw new Error("no_image_id");
+        refImageId = upData.imageId;
+      }
+
+      const create = await fetch("/api/imagine", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: trimmed, refImageId }),
+      });
+      if (!create.ok) throw new Error("create_failed");
+      const createData = (await create.json()) as {
+        generationId?: string;
+        awaitingApproval?: boolean;
+        pendingId?: string;
+      };
+
+      let genId = createData.generationId;
+
+      if (createData.awaitingApproval && createData.pendingId) {
+        const approveUrl = `${window.location.origin}/admin/approve/${createData.pendingId}`;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === placeholderId
+              ? {
+                  ...m,
+                  text:
+                    "הגענו ל-10 תמונות חינם. שלח את הקישור הזה לאלעד כדי לאשר:",
+                  imageStatus: "awaiting",
+                  approveUrl,
+                }
+              : m,
+          ),
+        );
+        const decision = await pollPending(createData.pendingId);
+        if (decision.status === "denied") {
+          throw new Error("denied");
+        }
+        genId = decision.generationId;
+      }
+
+      if (!genId) throw new Error("no_generation_id");
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === placeholderId
+            ? {
+                ...m,
+                text: "המסטולון מצייר... רגע אחי 🟢",
+                imageStatus: "pending",
+                approveUrl: undefined,
+              }
+            : m,
+        ),
+      );
+
+      const imageUrl = await pollGeneration(genId);
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === placeholderId
+            ? {
+                ...m,
+                text: trimmed,
+                imageUrl,
+                imageStatus: "ready",
+              }
+            : m,
+        ),
+      );
+    } catch (err) {
+      const denied = err instanceof Error && err.message === "denied";
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === placeholderId
+            ? {
+                ...m,
+                text: denied
+                  ? "אלעד אמר לא הפעם 😔"
+                  : "אחי הראש שלי לא צייר. ננסה שוב אחר כך.",
+                imageStatus: "error",
+                mood: denied ? "eran-disses" : "forgetful",
+                approveUrl: undefined,
+              }
+            : m,
+        ),
+      );
     }
   }
 
@@ -149,16 +287,71 @@ export default function Page() {
         <Suggestions onPick={(s) => void send(s)} disabled={pending} />
       </main>
 
+      {imagineOpen && (
+        <ImaginePanel
+          onClose={() => setImagineOpen(false)}
+          onSubmit={(p, f) => {
+            setImagineOpen(false);
+            void imagine(p, f);
+          }}
+        />
+      )}
+
       <Composer
         input={input}
         setInput={setInput}
         onKeyDown={onKeyDown}
         onSend={() => void send(input)}
+        onImagine={() => setImagineOpen(true)}
         disabled={pending}
         inputRef={inputRef}
       />
     </div>
   );
+}
+
+async function pollGeneration(id: string): Promise<string> {
+  const maxAttempts = 60;
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(i === 0 ? 2500 : 2000);
+    const res = await fetch(`/api/imagine/${encodeURIComponent(id)}`);
+    if (!res.ok) continue;
+    const data = (await res.json()) as { status?: string; imageUrl?: string };
+    if (data.status === "COMPLETE" && data.imageUrl) return data.imageUrl;
+    if (data.status === "FAILED") throw new Error("generation_failed");
+  }
+  throw new Error("timeout");
+}
+
+async function pollPending(
+  pendingId: string,
+): Promise<{ status: "approved" | "denied"; generationId?: string }> {
+  const maxAttempts = 360;
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(5000);
+    const res = await fetch(
+      `/api/imagine/pending/${encodeURIComponent(pendingId)}`,
+    );
+    if (!res.ok) continue;
+    const data = (await res.json()) as {
+      status?: string;
+      generationId?: string | null;
+    };
+    if (data.status === "approved") {
+      return {
+        status: "approved",
+        generationId: data.generationId ?? undefined,
+      };
+    }
+    if (data.status === "denied") {
+      return { status: "denied" };
+    }
+  }
+  throw new Error("approval_timeout");
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
 }
 
 function Bubble({ msg }: { msg: Msg }) {
@@ -177,8 +370,100 @@ function Bubble({ msg }: { msg: Msg }) {
             <span>מצב רוח: {MOOD_LABEL[msg.mood]}</span>
           </div>
         )}
-        <div className="whitespace-pre-wrap">{msg.text}</div>
+
+        {msg.imageStatus === "pending" && (
+          <div className="text-[11px] text-smoke-300 mb-1 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 animate-pulse" />
+            <span>nano banana pro · רץ</span>
+          </div>
+        )}
+
+        {msg.imageStatus === "awaiting" && (
+          <div className="text-[11px] text-smoke-300 mb-1 flex items-center gap-1">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            <span>ממתין לאישור</span>
+          </div>
+        )}
+
+        {msg.imageStatus === "awaiting" && msg.approveUrl ? (
+          <div className="space-y-2">
+            <div className="whitespace-pre-wrap text-sm">{msg.text}</div>
+            <CopyLink url={msg.approveUrl} />
+          </div>
+        ) : msg.imageUrl && msg.imageStatus === "ready" ? (
+          <div className="space-y-2">
+            <a
+              href={msg.imageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block rounded-xl overflow-hidden border border-smoke-700/40"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={msg.imageUrl}
+                alt={msg.imagePrompt ?? "imagine"}
+                className="w-full h-auto"
+                loading="lazy"
+              />
+            </a>
+            {msg.text && (
+              <div className="text-[13px] text-smoke-200/90 whitespace-pre-wrap">
+                {msg.text}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap">{msg.text}</div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function CopyLink({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // ignore
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  function shareWhatsApp() {
+    const msg = encodeURIComponent(`אישור למסטולון: ${url}`);
+    window.open(`https://wa.me/?text=${msg}`, "_blank");
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 bg-smoke-950/60 border border-smoke-700/60 rounded-lg px-2.5 py-1.5">
+        <code className="flex-1 text-[11px] text-smoke-200 truncate" dir="ltr">
+          {url}
+        </code>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className="shrink-0 p-1.5 rounded-md hover:bg-smoke-800/70 text-smoke-200"
+          aria-label="העתק"
+        >
+          {copied ? (
+            <Check className="w-3.5 h-3.5 text-emerald-300" />
+          ) : (
+            <Copy className="w-3.5 h-3.5" />
+          )}
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={shareWhatsApp}
+        className="w-full text-xs px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white"
+      >
+        שלח לאלעד בוואטסאפ
+      </button>
     </div>
   );
 }
@@ -219,11 +504,114 @@ function Suggestions({
   );
 }
 
+function ImaginePanel({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (prompt: string, ref: File | null) => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const previewUrl = file ? URL.createObjectURL(file) : null;
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  return (
+    <div className="fixed inset-0 z-30 bg-smoke-950/70 backdrop-blur-sm grid place-items-end sm:place-items-center px-3 sm:px-0">
+      <div className="w-full sm:max-w-md bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-4 shadow-2xl glow-ring">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-5 h-5 text-smoke-200" />
+          <h2 className="text-smoke-100 font-semibold flex-1">תצייר לי משהו</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-smoke-800/60 text-smoke-300"
+            aria-label="סגור"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={3}
+          placeholder="לדוגמה: ערן יושב על ספה ירוקה ובוכה לתוך בונג ריק"
+          className="w-full input-glow resize-none rounded-xl bg-smoke-950/80 border border-smoke-700/60 px-3 py-2.5 text-smoke-100 placeholder:text-smoke-300/50 text-sm"
+          dir="rtl"
+        />
+
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="text-xs px-3 py-1.5 rounded-full bg-smoke-800/60 hover:bg-smoke-700/70 border border-smoke-700/60 text-smoke-200 flex items-center gap-1.5 transition"
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            {file ? "החלף תמונה" : "תמונת התייחסות (לא חובה)"}
+          </button>
+          {file && (
+            <button
+              type="button"
+              onClick={() => setFile(null)}
+              className="text-xs text-smoke-300/80 hover:text-smoke-100"
+            >
+              הסר
+            </button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setFile(f);
+            }}
+          />
+        </div>
+
+        {previewUrl && (
+          <div className="mt-3 rounded-xl overflow-hidden border border-smoke-700/60 max-h-48">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt="preview"
+              className="w-full h-auto object-cover"
+            />
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => onSubmit(prompt, file)}
+          disabled={!prompt.trim()}
+          className="mt-4 w-full h-11 rounded-xl bg-gradient-to-br from-smoke-400 to-smoke-600 text-white font-medium disabled:opacity-40 transition active:scale-[0.99] flex items-center justify-center gap-2"
+        >
+          <Sparkles className="w-4 h-4" />
+          תצייר
+        </button>
+
+        <p className="text-[10px] text-smoke-400/70 mt-3 text-center">
+          nano banana pro · בערך 10–25 שניות
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function Composer({
   input,
   setInput,
   onKeyDown,
   onSend,
+  onImagine,
   disabled,
   inputRef,
 }: {
@@ -231,6 +619,7 @@ function Composer({
   setInput: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
+  onImagine: () => void;
   disabled: boolean;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
@@ -238,6 +627,16 @@ function Composer({
     <div className="fixed bottom-0 inset-x-0 z-20 border-t border-smoke-700/40 bg-smoke-950/80 backdrop-blur-md">
       <div className="max-w-3xl mx-auto px-3 sm:px-6 py-3">
         <div className="flex items-end gap-2">
+          <button
+            type="button"
+            onClick={onImagine}
+            className="h-12 w-12 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95"
+            aria-label="תצייר"
+            title="תצייר לי משהו"
+          >
+            <Sparkles className="w-5 h-5" />
+          </button>
+
           <textarea
             ref={inputRef}
             value={input}
