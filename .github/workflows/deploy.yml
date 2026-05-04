@@ -1,0 +1,32 @@
+name: Deploy mastulon-chat to Cloudflare Pages
+
+on:
+  push:
+    branches: [claude/deploy-stoner-chatbot-cloudflare-mm22U]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build (next-on-pages)
+        run: npx @cloudflare/next-on-pages
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy .vercel/output/static --project-name=mastulon-chat --branch=main --commit-dirty=true
