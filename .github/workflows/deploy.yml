@@ -39,6 +39,43 @@ jobs:
               --compatibility-flags=nodejs_compat
           fi
 
+      - name: Ensure KV namespace exists & write wrangler.toml
+        run: |
+          set -e
+          NS_LIST=$(npx wrangler kv namespace list 2>/dev/null || echo '[]')
+          NS_ID=$(printf '%s' "$NS_LIST" | python3 -c '
+          import json, sys
+          try:
+              data = json.load(sys.stdin)
+          except Exception:
+              data = []
+          wanted = ("mastulon-state", "mastulon-chat-mastulon-state")
+          ids = [x.get("id") for x in data if x.get("title") in wanted]
+          print(ids[0] if ids else "")
+          ')
+          if [ -z "$NS_ID" ]; then
+            echo "Creating KV namespace mastulon-state..."
+            CREATE_OUT=$(npx wrangler kv namespace create mastulon-state 2>&1)
+            echo "$CREATE_OUT"
+            NS_ID=$(printf '%s' "$CREATE_OUT" | grep -oE 'id ?= ?"[a-f0-9]{32}"' | head -1 | sed -E 's/.*"([a-f0-9]{32})".*/\1/')
+          fi
+          if [ -z "$NS_ID" ]; then
+            echo "Failed to obtain KV namespace ID" >&2
+            exit 1
+          fi
+          echo "KV namespace id: $NS_ID"
+          cat > wrangler.toml <<TOML
+          name = "mastulon-chat"
+          compatibility_date = "2024-11-01"
+          compatibility_flags = ["nodejs_compat"]
+          pages_build_output_dir = ".vercel/output/static"
+
+          [[kv_namespaces]]
+          binding = "MASTULON_KV"
+          id = "$NS_ID"
+          TOML
+          cat wrangler.toml
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
