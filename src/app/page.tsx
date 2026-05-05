@@ -148,7 +148,10 @@ export default function Page() {
           method: "POST",
           body: fd,
         });
-        if (!up.ok) throw new Error("upload_failed");
+        if (!up.ok) {
+          const detail = await readErrorDetail(up);
+          throw new Error(`upload_failed: ${detail}`);
+        }
         const upData = (await up.json()) as { imageId?: string };
         if (!upData.imageId) throw new Error("no_image_id");
         refImageId = upData.imageId;
@@ -159,7 +162,10 @@ export default function Page() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt: trimmed, refImageId }),
       });
-      if (!create.ok) throw new Error("create_failed");
+      if (!create.ok) {
+        const detail = await readErrorDetail(create);
+        throw new Error(`create_failed: ${detail}`);
+      }
       const createData = (await create.json()) as {
         generationId?: string;
         awaitingApproval?: boolean;
@@ -221,6 +227,8 @@ export default function Page() {
       );
     } catch (err) {
       const denied = err instanceof Error && err.message === "denied";
+      const detail =
+        err instanceof Error ? err.message : String(err);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === placeholderId
@@ -228,7 +236,7 @@ export default function Page() {
                 ...m,
                 text: denied
                   ? "אלעד אמר לא הפעם 😔"
-                  : "אחי הראש שלי לא צייר. ננסה שוב אחר כך.",
+                  : `אחי הראש שלי לא צייר. ננסה שוב אחר כך.\n\n[debug: ${detail}]`,
                 imageStatus: "error",
                 mood: denied ? "eran-disses" : "forgetful",
                 approveUrl: undefined,
@@ -238,6 +246,7 @@ export default function Page() {
       );
     }
   }
+
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -308,6 +317,17 @@ export default function Page() {
       />
     </div>
   );
+}
+
+async function readErrorDetail(res: Response): Promise<string> {
+  try {
+    const data = (await res.json()) as { error?: string; status?: number };
+    const code = data?.error ?? "unknown";
+    const status = data?.status ?? res.status;
+    return `${res.status}/${code}${status !== res.status ? `(${status})` : ""}`;
+  } catch {
+    return `${res.status}`;
+  }
 }
 
 async function pollGeneration(id: string): Promise<string> {
