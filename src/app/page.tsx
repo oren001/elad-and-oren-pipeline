@@ -11,6 +11,8 @@ import {
   Bell,
   BellOff,
   Satellite,
+  Download,
+  Share,
 } from "lucide-react";
 import { USERS, getUserById, findMentions, type User } from "@/lib/users";
 
@@ -30,6 +32,11 @@ type ImageState = {
   generationId?: string;
   error?: string;
 };
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
 
 type RoomMsg = {
   id: string;
@@ -76,6 +83,11 @@ export default function Page() {
   const [hydrated, setHydrated] = useState(false);
   const [notifPermission, setNotifPermission] =
     useState<NotificationPermission | "unsupported">("default");
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [iosInstall, setIosInstall] = useState(false);
+  const [installed, setInstalled] = useState(false);
+  const [installDismissed, setInstallDismissed] = useState(false);
+  const [showIosGuide, setShowIosGuide] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const lastSeenIdRef = useRef<string | null>(null);
@@ -102,7 +114,46 @@ export default function Page() {
         setNotifPermission("unsupported");
       }
     }
+
+    if (typeof window !== "undefined") {
+      const standalone =
+        window.matchMedia &&
+        window.matchMedia("(display-mode: standalone)").matches;
+      const iosStandalone =
+        (window.navigator as Navigator & { standalone?: boolean })
+          .standalone === true;
+      if (standalone || iosStandalone) {
+        setInstalled(true);
+      } else {
+        const ua = window.navigator.userAgent || "";
+        if (/iPhone|iPad|iPod/i.test(ua) && !/CriOS|FxiOS/i.test(ua)) {
+          setIosInstall(true);
+        }
+        const dismissed =
+          localStorage.getItem("halviinim:installDismissed") === "1";
+        if (dismissed) setInstallDismissed(true);
+      }
+    }
+
     setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onBeforeInstall(e: Event) {
+      e.preventDefault();
+      setInstallPrompt(e as BeforeInstallPromptEvent);
+    }
+    function onInstalled() {
+      setInstalled(true);
+      setInstallPrompt(null);
+    }
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
   }, []);
 
   useEffect(() => {
@@ -328,6 +379,25 @@ export default function Page() {
     setSelf(null);
   }
 
+  async function doInstall() {
+    if (installPrompt) {
+      try {
+        await installPrompt.prompt();
+        await installPrompt.userChoice;
+      } catch {
+        // ignore
+      }
+      setInstallPrompt(null);
+    } else if (iosInstall) {
+      setShowIosGuide(true);
+    }
+  }
+
+  function dismissInstall() {
+    localStorage.setItem("halviinim:installDismissed", "1");
+    setInstallDismissed(true);
+  }
+
   async function enableNotifications() {
     const result = await requestNotificationPermission();
     setNotifPermission(result);
@@ -411,6 +481,36 @@ export default function Page() {
           <span className="dot-typing" />
           <span className="dot-typing" />
         </div>
+      )}
+
+      {!installed &&
+        !installDismissed &&
+        (installPrompt || iosInstall) && (
+          <div className="relative z-10 px-3 py-2 flex items-center gap-2 bg-smoke-800/90 backdrop-blur border-b border-smoke-700/60 text-smoke-100">
+            <Download className="w-4 h-4 shrink-0 text-emerald-300" />
+            <span className="flex-1 text-xs">
+              התקן את הלווינים לקבלת התראות גם כשהאפליקציה סגורה
+            </span>
+            <button
+              type="button"
+              onClick={doInstall}
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white font-medium"
+            >
+              התקן
+            </button>
+            <button
+              type="button"
+              onClick={dismissInstall}
+              className="p-1.5 rounded-md text-smoke-300/80 hover:text-smoke-100"
+              aria-label="סגור"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+      {showIosGuide && (
+        <IosInstallGuide onClose={() => setShowIosGuide(false)} />
       )}
 
       <main className="relative z-10 max-w-3xl mx-auto px-3 sm:px-6 pt-3 pb-32">
@@ -548,6 +648,58 @@ async function pollGeneration(id: string): Promise<string> {
 
 function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+function IosInstallGuide({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-40 bg-smoke-950/80 backdrop-blur-sm grid place-items-center px-4">
+      <div className="w-full max-w-sm bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-5 shadow-2xl glow-ring">
+        <div className="flex items-center gap-2 mb-3">
+          <Download className="w-5 h-5 text-emerald-300" />
+          <h2 className="text-smoke-100 font-semibold flex-1">
+            התקנה באייפון
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-smoke-800/60 text-smoke-300"
+            aria-label="סגור"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <ol className="text-smoke-200 text-sm space-y-3 mt-2">
+          <li className="flex gap-3 items-start">
+            <span className="shrink-0 w-6 h-6 rounded-full bg-emerald-600 grid place-items-center text-xs font-bold">
+              1
+            </span>
+            <span>
+              לחץ על כפתור{" "}
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-smoke-800/70 text-smoke-100">
+                <Share className="w-3 h-3" /> שתף
+              </span>{" "}
+              בסרגל התחתון של ספארי
+            </span>
+          </li>
+          <li className="flex gap-3 items-start">
+            <span className="shrink-0 w-6 h-6 rounded-full bg-emerald-600 grid place-items-center text-xs font-bold">
+              2
+            </span>
+            <span>גלול ברשימה ובחר &quot;Add to Home Screen&quot;</span>
+          </li>
+          <li className="flex gap-3 items-start">
+            <span className="shrink-0 w-6 h-6 rounded-full bg-emerald-600 grid place-items-center text-xs font-bold">
+              3
+            </span>
+            <span>לחץ &quot;Add&quot; בפינה</span>
+          </li>
+        </ol>
+        <p className="text-[11px] text-smoke-400/80 mt-4">
+          חייב להיות בספארי (לא בכרום או באפליקציה אחרת) כדי שזה יעבוד באייפון.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function IdentityPicker({ onPick }: { onPick: (u: User) => void }) {
