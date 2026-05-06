@@ -143,6 +143,9 @@ export default function Page() {
   const profileFileRef = useRef<HTMLInputElement | null>(null);
   const [profileUploading, setProfileUploading] = useState(false);
   const [profileCropFile, setProfileCropFile] = useState<File | null>(null);
+  const [profileTargetUserId, setProfileTargetUserId] = useState<string | null>(
+    null,
+  );
   const [themeId, setThemeId] = useState<string | null>(null);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -299,13 +302,18 @@ export default function Page() {
     };
   }, []);
 
-  async function uploadProfile(blob: Blob, mime = "image/jpeg") {
-    if (!self) return;
+  async function uploadProfile(
+    blob: Blob,
+    mime = "image/jpeg",
+    forUserId?: string,
+  ) {
+    const targetId = forUserId ?? self?.id;
+    if (!targetId) return;
     if (profileUploading) return;
     setProfileUploading(true);
     try {
       const fd = new FormData();
-      fd.append("userId", self.id);
+      fd.append("userId", targetId);
       fd.append("file", new File([blob], "profile.jpg", { type: mime }));
       const res = await fetch("/api/user/profile", {
         method: "POST",
@@ -319,12 +327,11 @@ export default function Page() {
       if (data.ok && data.photoUrl) {
         setProfiles((prev) => ({
           ...prev,
-          [self.id]: {
+          [targetId]: {
             url: data.photoUrl + "?t=" + Date.now(),
             hasRef: Boolean(data.leonardoLinked),
           },
         }));
-        setProfileModalOpen(false);
       }
     } finally {
       setProfileUploading(false);
@@ -1356,20 +1363,25 @@ export default function Page() {
       {profileCropFile && (
         <FaceCrop
           file={profileCropFile}
-          onCancel={() => setProfileCropFile(null)}
-          onCrop={async (blob) => {
+          onCancel={() => {
             setProfileCropFile(null);
-            await uploadProfile(blob, "image/jpeg");
+            setProfileTargetUserId(null);
+          }}
+          onCrop={async (blob) => {
+            const target = profileTargetUserId ?? self?.id ?? null;
+            setProfileCropFile(null);
+            setProfileTargetUserId(null);
+            if (target) await uploadProfile(blob, "image/jpeg", target);
           }}
         />
       )}
 
       {profileModalOpen && self && (
-        <div className="fixed inset-0 z-30 bg-smoke-950/70 backdrop-blur-sm grid place-items-center px-4">
-          <div className="w-full max-w-sm bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-5 shadow-2xl glow-ring">
+        <div className="fixed inset-0 z-30 bg-smoke-950/75 backdrop-blur-sm grid place-items-center px-4 py-6 overflow-y-auto">
+          <div className="w-full max-w-md bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-5 shadow-2xl glow-ring">
             <div className="flex items-center gap-2 mb-4">
               <h2 className="text-smoke-100 font-semibold flex-1">
-                תמונת פרופיל של {self.display}
+                תמונות פרופיל
               </h2>
               <button
                 type="button"
@@ -1380,47 +1392,56 @@ export default function Page() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-20 h-20 rounded-full overflow-hidden bg-smoke-800/70 border border-smoke-700/60 grid place-items-center">
-                {profiles[self.id]?.url ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={profiles[self.id]!.url}
-                    alt={self.display}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-2xl text-smoke-300">
-                    {self.display.slice(0, 1)}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-smoke-300 flex-1">
-                העלה תמונה — היא תופיע ליד ההודעות שלך, ובאופן אקראי תושתל
-                לתוך תמונות שהמסטולון יוצר. דיוק הזיהוי משתפר עם פרצוף ברור
-                ותאורה טובה.
-              </p>
+            <p className="text-xs text-smoke-300 mb-4">
+              לחץ על מישהו כדי להעלות לו תמונה. אחרי שמעלים — חותכים את הפנים
+              והתמונה גם משמשת כהתייחסות בציורים שהמסטולון יוצר.
+            </p>
+            <div className="grid grid-cols-1 gap-2">
+              {USERS.map((u) => {
+                const p = profiles[u.id];
+                const isMe = u.id === self.id;
+                return (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => {
+                      setProfileTargetUserId(u.id);
+                      profileFileRef.current?.click();
+                    }}
+                    className="flex items-center gap-3 p-2.5 rounded-xl bg-smoke-800/50 hover:bg-smoke-800/80 border border-smoke-700/60 transition active:scale-[0.99]"
+                  >
+                    <div className="w-12 h-12 rounded-full overflow-hidden bg-smoke-800/70 border border-smoke-700/60 grid place-items-center shrink-0">
+                      {p?.url ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={p.url}
+                          alt={u.display}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-lg text-smoke-300">
+                          {u.display.slice(0, 1)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 text-right min-w-0">
+                      <div className="text-smoke-100 font-semibold text-sm flex items-center gap-2 justify-end">
+                        {isMe && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-700/70 text-emerald-50">
+                            אתה
+                          </span>
+                        )}
+                        <span>{u.display}</span>
+                      </div>
+                      <div className="text-[11px] text-smoke-400 mt-0.5">
+                        {p ? "החלף תמונה" : "אין תמונה — העלה"}
+                      </div>
+                    </div>
+                    <ImageIcon className="w-4 h-4 text-smoke-300 shrink-0" />
+                  </button>
+                );
+              })}
             </div>
-            <button
-              type="button"
-              onClick={() => profileFileRef.current?.click()}
-              disabled={profileUploading}
-              className="w-full h-11 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-medium disabled:opacity-60 transition flex items-center justify-center gap-2"
-            >
-              {profileUploading ? (
-                <>
-                  <span className="dot-typing" />
-                  <span className="dot-typing" />
-                  <span className="dot-typing" />
-                  <span className="ms-2">מעלה...</span>
-                </>
-              ) : (
-                <>
-                  <ImageIcon className="w-4 h-4" />
-                  בחר תמונה
-                </>
-              )}
-            </button>
             <input
               ref={profileFileRef}
               type="file"
@@ -1431,9 +1452,17 @@ export default function Page() {
                 if (f) setProfileCropFile(f);
               }}
             />
-            <p className="text-[10px] text-smoke-400/70 mt-3 text-center">
-              עד 4MB · jpeg/png/webp
+            <p className="text-[10px] text-smoke-400/70 mt-4 text-center">
+              עד 4MB · jpeg/png/webp · חיתוך פנים אחרי הבחירה
             </p>
+            {profileUploading && (
+              <div className="mt-3 text-center text-emerald-300 text-sm flex items-center justify-center gap-2">
+                <span className="dot-typing" />
+                <span className="dot-typing" />
+                <span className="dot-typing" />
+                <span className="ms-2">מעלה...</span>
+              </div>
+            )}
           </div>
         </div>
       )}
