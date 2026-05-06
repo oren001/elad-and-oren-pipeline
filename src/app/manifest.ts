@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    id: "/",
     name: "הלווינים",
     short_name: "הלווינים",
     description: "החדר של הלווינים — צ'אט, ציורים, ומסטולון",
@@ -22,9 +23,21 @@ export default function manifest(): MetadataRoute.Manifest {
       },
       {
         src: "/icon",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+      {
+        src: "/icon1",
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
+      },
+      {
+        src: "/icon1",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "maskable",
       },
       {
         src: "/apple-icon",
@@ -35,3 +48,4 @@ export default function manifest(): MetadataRoute.Manifest {
     ],
   };
 }
+
