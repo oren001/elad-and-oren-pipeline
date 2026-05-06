@@ -11,6 +11,7 @@ export const USERS: readonly User[] = [
   { id: "philip", display: "פיליפ", handles: ["פיליפ"] },
   { id: "michal", display: "מיכל", handles: ["מיכל"] },
   { id: "neta-b", display: "נטע ב", handles: ["נטע ב", "נטע"] },
+  { id: "oren", display: "אורן", handles: ["אורן"] },
 ];
 
 export function getUserById(id: string): User | undefined {
