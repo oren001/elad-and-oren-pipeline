@@ -5,12 +5,11 @@ export type User = {
 };
 
 export const USERS: readonly User[] = [
-  { id: "neta-a", display: "נטע א", handles: ["נטע א", "נטע"] },
+  { id: "neta", display: "נטע", handles: ["נטע"] },
   { id: "itai", display: "איתי", handles: ["איתי"] },
   { id: "elad", display: "אלעד", handles: ["אלעד"] },
   { id: "philip", display: "פיליפ", handles: ["פיליפ"] },
   { id: "michal", display: "מיכל", handles: ["מיכל"] },
-  { id: "neta-b", display: "נטע ב", handles: ["נטע ב", "נטע"] },
   { id: "oren", display: "אורן", handles: ["אורן"] },
   { id: "eran", display: "ערן", handles: ["ערן"] },
 ];

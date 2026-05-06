@@ -174,16 +174,7 @@ export async function readPresence(): Promise<Record<string, number>> {
   return out;
 }
 
-const USER_IDS = [
-  "neta-a",
-  "itai",
-  "elad",
-  "philip",
-  "michal",
-  "neta-b",
-  "oren",
-  "eran",
-];
+const USER_IDS = ["neta", "itai", "elad", "philip", "michal", "oren", "eran"];
 
 function todayKey(): string {
   const d = new Date();
