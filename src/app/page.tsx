@@ -873,6 +873,7 @@ export default function Page() {
               ציורים: {daily.used}/{daily.limit} · הודעות: {messages.length}
             </span>
             <OnlineIndicator presence={presence} selfId={self.id} />
+            <BuildBadge />
           </div>
           <div className="text-smoke-300/80 text-xs flex items-center gap-2 mt-0.5">
             <button
@@ -1255,6 +1256,28 @@ function SystemBubble({ msg }: { msg: RoomMsg }) {
         {msg.text}
       </div>
     </div>
+  );
+}
+
+function BuildBadge() {
+  const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME;
+  const buildSha = process.env.NEXT_PUBLIC_BUILD_SHA;
+  if (!buildTime) return null;
+  const d = new Date(buildTime);
+  if (Number.isNaN(d.getTime())) return null;
+  const formatted = d.toLocaleString("he-IL", {
+    day: "numeric",
+    month: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <span
+      className="text-smoke-500/70 text-[10px] tabular-nums"
+      title={`build ${buildSha ?? ""} @ ${buildTime}`}
+    >
+      עודכן {formatted}
+    </span>
   );
 }
 

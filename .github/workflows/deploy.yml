@@ -25,7 +25,11 @@ jobs:
       - run: npm ci
 
       - name: Build (next-on-pages)
-        run: npx @cloudflare/next-on-pages
+        run: |
+          export NEXT_PUBLIC_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export NEXT_PUBLIC_BUILD_SHA="$(git rev-parse --short HEAD)"
+          echo "Building $NEXT_PUBLIC_BUILD_SHA at $NEXT_PUBLIC_BUILD_TIME"
+          npx @cloudflare/next-on-pages
 
       - name: Ensure Pages project exists
         run: |
