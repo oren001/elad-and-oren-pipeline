@@ -148,6 +148,8 @@ export default function Page() {
   const levelLoopRef = useRef<{ stop: () => void } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const [hideHeader, setHideHeader] = useState(false);
+  const lastScrollTopRef = useRef(0);
   const isAtBottomRef = useRef(true);
   const isVisibleRef = useRef(
     typeof document === "undefined" ? true : !document.hidden,
@@ -444,6 +446,16 @@ export default function Page() {
       if (atBottom) {
         setShowJumpToBottom(false);
         setUnreadCount(0);
+      }
+      const cur = el.scrollTop;
+      const delta = cur - lastScrollTopRef.current;
+      if (Math.abs(delta) > 6) {
+        if (delta > 0 && cur > 80) {
+          setHideHeader(true);
+        } else if (delta < 0) {
+          setHideHeader(false);
+        }
+        lastScrollTopRef.current = cur;
       }
     }
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -1006,7 +1018,11 @@ export default function Page() {
     <div className="relative min-h-screen w-full overflow-hidden">
       <SmokeBackdrop />
 
-      <header className="relative z-10 px-4 sm:px-8 py-4 flex items-center gap-3 border-b border-smoke-700/40 bg-smoke-950/40 backdrop-blur">
+      <header
+        className={`relative z-20 px-4 sm:px-8 py-4 flex items-center gap-3 border-b border-smoke-700/40 bg-smoke-950/40 backdrop-blur transition-transform duration-200 ease-out ${
+          hideHeader ? "-translate-y-full" : "translate-y-0"
+        }`}
+      >
         <div className="w-9 h-9 rounded-full glow-ring flex items-center justify-center bg-smoke-800/70 shrink-0">
           <Satellite className="w-5 h-5 text-smoke-200" />
         </div>
