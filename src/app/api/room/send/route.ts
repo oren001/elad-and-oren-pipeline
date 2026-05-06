@@ -1,5 +1,6 @@
 import { appendMessages, newId, type RoomMsg } from "@/lib/room";
 import { generate } from "@/lib/persona";
+import { notifyMentions } from "@/lib/notify";
 
 export const runtime = "edge";
 
@@ -60,5 +61,12 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const messages = await appendMessages(...toAppend);
+
+  await notifyMentions({
+    text,
+    authorName,
+    authorId,
+  });
+
   return Response.json({ messages });
 }

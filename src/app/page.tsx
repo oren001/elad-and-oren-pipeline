@@ -84,7 +84,16 @@ export default function Page() {
     const id = readSelfId();
     if (id) {
       const u = getUserById(id);
-      if (u) setSelf(u);
+      if (u) {
+        setSelf(u);
+        if (
+          typeof window !== "undefined" &&
+          "Notification" in window &&
+          Notification.permission === "granted"
+        ) {
+          void ensurePushSubscription(u.id);
+        }
+      }
     }
     if (typeof window !== "undefined") {
       if ("Notification" in window) {
@@ -306,7 +315,12 @@ export default function Page() {
   function pickIdentity(u: User) {
     writeSelfId(u.id);
     setSelf(u);
-    requestNotificationPermission().then(setNotifPermission);
+    requestNotificationPermission().then(async (perm) => {
+      setNotifPermission(perm);
+      if (perm === "granted") {
+        await ensurePushSubscription(u.id);
+      }
+    });
   }
 
   function switchIdentity() {
@@ -317,6 +331,9 @@ export default function Page() {
   async function enableNotifications() {
     const result = await requestNotificationPermission();
     setNotifPermission(result);
+    if (result === "granted" && self) {
+      await ensurePushSubscription(self.id);
+    }
   }
 
   if (!hydrated) {
@@ -436,6 +453,48 @@ export default function Page() {
       />
     </div>
   );
+}
+
+async function ensurePushSubscription(userId: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (!("serviceWorker" in navigator)) return;
+  if (!("PushManager" in window)) return;
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const vapidRes = await fetch("/api/push/vapid");
+      if (!vapidRes.ok) return;
+      const { publicKey } = (await vapidRes.json()) as { publicKey?: string };
+      if (!publicKey) return;
+      const applicationServerKey = b64urlToUint8Array(publicKey);
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: applicationServerKey.buffer as ArrayBuffer,
+      });
+    }
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        subscription: sub.toJSON(),
+      }),
+    });
+  } catch {
+    // silent — fall back to in-tab notifications
+  }
+}
+
+function b64urlToUint8Array(s: string): Uint8Array {
+  const pad = s.length % 4;
+  const padded = pad ? s + "=".repeat(4 - pad) : s;
+  const std = padded.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(std);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 async function requestNotificationPermission(): Promise<

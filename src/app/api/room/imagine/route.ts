@@ -7,6 +7,7 @@ import {
   type RoomMsg,
 } from "@/lib/room";
 import { startGeneration } from "@/lib/leonardo";
+import { notifyMentions } from "@/lib/notify";
 
 export const runtime = "edge";
 
@@ -89,6 +90,12 @@ export async function POST(req: Request): Promise<Response> {
   };
 
   await appendMessages(userMsg, pendingMsg);
+
+  await notifyMentions({
+    text: prompt,
+    authorName,
+    authorId,
+  });
 
   return Response.json({
     msgId: pendingMsgId,
