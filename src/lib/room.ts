@@ -28,6 +28,9 @@ export type RoomMsg = {
   reactions?: Record<string, string[]>;
   replyTo?: { id: string; authorName: string; snippet: string };
   uploaded?: boolean;
+  voice?: { url: string; duration: number };
+  editedAt?: number;
+  deleted?: boolean;
 };
 
 const ROOM_KEY = "room:main:msgs";
@@ -110,6 +113,68 @@ export async function toggleReaction(
   await saveMessages(msgs);
   return msgs;
 }
+
+export async function editMessage(
+  msgId: string,
+  userId: string,
+  newText: string,
+): Promise<{ ok: boolean; reason?: string; messages: RoomMsg[] }> {
+  const msgs = await loadMessages();
+  const m = msgs.find((x) => x.id === msgId);
+  if (!m) return { ok: false, reason: "not_found", messages: msgs };
+  if (m.author?.id !== userId)
+    return { ok: false, reason: "forbidden", messages: msgs };
+  if (m.deleted) return { ok: false, reason: "deleted", messages: msgs };
+  m.text = newText;
+  m.editedAt = Date.now();
+  await saveMessages(msgs);
+  return { ok: true, messages: msgs };
+}
+
+export async function deleteMessage(
+  msgId: string,
+  userId: string,
+): Promise<{ ok: boolean; reason?: string; messages: RoomMsg[] }> {
+  const msgs = await loadMessages();
+  const m = msgs.find((x) => x.id === msgId);
+  if (!m) return { ok: false, reason: "not_found", messages: msgs };
+  if (m.author?.id !== userId)
+    return { ok: false, reason: "forbidden", messages: msgs };
+  m.deleted = true;
+  m.text = undefined;
+  m.image = undefined;
+  m.voice = undefined;
+  m.replyTo = undefined;
+  m.reactions = undefined;
+  await saveMessages(msgs);
+  return { ok: true, messages: msgs };
+}
+
+const PRESENCE_PREFIX = "presence:";
+const PRESENCE_TTL_SEC = 90;
+
+export async function setHeartbeat(userId: string): Promise<void> {
+  const kv = getKv();
+  if (!kv) return;
+  await kv.put(PRESENCE_PREFIX + userId, String(Date.now()), {
+    expirationTtl: PRESENCE_TTL_SEC,
+  });
+}
+
+export async function readPresence(): Promise<Record<string, number>> {
+  const kv = getKv();
+  if (!kv) return {};
+  const out: Record<string, number> = {};
+  await Promise.all(
+    USER_IDS.map(async (uid) => {
+      const raw = await kv.get(PRESENCE_PREFIX + uid);
+      if (raw) out[uid] = Number(raw);
+    }),
+  );
+  return out;
+}
+
+const USER_IDS = ["neta-a", "itai", "elad", "philip", "michal", "neta-b", "oren"];
 
 function todayKey(): string {
   const d = new Date();

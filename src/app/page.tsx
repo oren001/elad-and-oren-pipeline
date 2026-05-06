@@ -17,6 +17,12 @@ import {
   Reply,
   SmilePlus,
   Paperclip,
+  Mic,
+  Square,
+  Trash2,
+  Pencil,
+  Play,
+  Pause,
 } from "lucide-react";
 import { USERS, getUserById, findMentions, type User } from "@/lib/users";
 
@@ -55,6 +61,9 @@ type RoomMsg = {
   reactions?: Record<string, string[]>;
   replyTo?: ReplyTo;
   uploaded?: boolean;
+  voice?: { url: string; duration: number };
+  editedAt?: number;
+  deleted?: boolean;
 };
 
 const REACTION_EMOJIS = ["❤️", "🔥", "💀", "😂", "🤔", "🟢", "👍", "🙄"];
@@ -103,6 +112,13 @@ export default function Page() {
   const [replyTarget, setReplyTarget] = useState<ReplyTo | null>(null);
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [presence, setPresence] = useState<Record<string, number>>({});
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recorderStartRef = useRef<number>(0);
+  const recorderTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -182,10 +198,12 @@ export default function Page() {
         const data = (await res.json()) as {
           messages?: RoomMsg[];
           daily?: { used: number; limit: number };
+          presence?: Record<string, number>;
         };
         if (cancelled) return;
         if (Array.isArray(data.messages)) setMessages(data.messages);
         if (data.daily) setDaily(data.daily);
+        if (data.presence) setPresence(data.presence);
       } catch {
         // silent
       }
@@ -197,6 +215,26 @@ export default function Page() {
       clearInterval(id);
     };
   }, []);
+
+  useEffect(() => {
+    if (!self) return;
+    let cancelled = false;
+    const send = () => {
+      fetch("/api/room/heartbeat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: self.id }),
+      }).catch(() => {});
+    };
+    send();
+    const id = setInterval(() => {
+      if (!cancelled) send();
+    }, 25000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [self]);
 
   // Notification on @mention of self
   useEffect(() => {
@@ -409,6 +447,152 @@ export default function Page() {
     }
   }
 
+  function startEdit(msg: RoomMsg) {
+    if (!msg.text) return;
+    setEditingId(msg.id);
+    setInput(msg.text);
+    setReplyTarget(null);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setInput("");
+  }
+
+  async function commitEdit() {
+    if (!self || !editingId) return;
+    const text = input.trim();
+    if (!text) return;
+    const msgId = editingId;
+    setEditingId(null);
+    setInput("");
+    try {
+      const res = await fetch("/api/room/edit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ msgId, userId: self.id, text }),
+      });
+      const data = (await res.json()) as { messages?: RoomMsg[] };
+      if (Array.isArray(data.messages)) setMessages(data.messages);
+    } catch {
+      // silent
+    }
+  }
+
+  async function deleteMsg(msg: RoomMsg) {
+    if (!self) return;
+    if (!confirm("למחוק את ההודעה?")) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msg.id
+          ? { ...m, deleted: true, text: undefined, image: undefined, voice: undefined }
+          : m,
+      ),
+    );
+    try {
+      await fetch("/api/room/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ msgId: msg.id, userId: self.id }),
+      });
+    } catch {
+      // optimistic; next poll resyncs
+    }
+  }
+
+  async function startRecording() {
+    if (recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime =
+        MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/mp4")
+            ? "audio/mp4"
+            : "";
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const duration = Date.now() - recorderStartRef.current;
+        await uploadVoice(blob, duration);
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      recorderStartRef.current = Date.now();
+      setRecording(true);
+      setRecordSeconds(0);
+      recorderTickRef.current = setInterval(() => {
+        setRecordSeconds(
+          Math.floor((Date.now() - recorderStartRef.current) / 1000),
+        );
+      }, 250);
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.name === "NotAllowedError"
+          ? "אין הרשאת מיקרופון"
+          : "מיקרופון לא זמין";
+      alert(msg);
+    }
+  }
+
+  function stopRecording() {
+    const r = recorderRef.current;
+    if (!r) return;
+    if (recorderTickRef.current) {
+      clearInterval(recorderTickRef.current);
+      recorderTickRef.current = null;
+    }
+    setRecording(false);
+    if (r.state !== "inactive") r.stop();
+    recorderRef.current = null;
+  }
+
+  function cancelRecording() {
+    const r = recorderRef.current;
+    if (r) {
+      r.ondataavailable = null;
+      r.onstop = () => {};
+      if (r.state !== "inactive") r.stop();
+      r.stream?.getTracks().forEach((t) => t.stop());
+    }
+    if (recorderTickRef.current) {
+      clearInterval(recorderTickRef.current);
+      recorderTickRef.current = null;
+    }
+    setRecording(false);
+    recorderRef.current = null;
+  }
+
+  async function uploadVoice(blob: Blob, durationMs: number) {
+    if (!self) return;
+    const fd = new FormData();
+    const ext = (blob.type.split("/")[1] ?? "webm").split(";")[0];
+    fd.append("file", blob, `voice.${ext}`);
+    fd.append("authorId", self.id);
+    fd.append("authorName", self.display);
+    fd.append("duration", String(durationMs));
+    if (replyTarget) fd.append("replyTo", JSON.stringify(replyTarget));
+    try {
+      const res = await fetch("/api/room/voice", {
+        method: "POST",
+        body: fd,
+      });
+      const data = (await res.json()) as { messages?: RoomMsg[] };
+      if (Array.isArray(data.messages)) setMessages(data.messages);
+      setReplyTarget(null);
+    } catch {
+      // silent
+    }
+  }
+
   function startReply(msg: RoomMsg) {
     if (!msg.author && msg.role !== "bot") return;
     const snippet =
@@ -467,7 +651,12 @@ export default function Page() {
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void send(input);
+      if (editingId) void commitEdit();
+      else void send(input);
+    }
+    if (e.key === "Escape" && editingId) {
+      e.preventDefault();
+      cancelEdit();
     }
   }
 
@@ -548,6 +737,7 @@ export default function Page() {
             <span className="text-smoke-400 text-[11px]">
               ציורים: {daily.used}/{daily.limit} · הודעות: {messages.length}
             </span>
+            <OnlineIndicator presence={presence} selfId={self.id} />
           </div>
           <button
             type="button"
@@ -641,6 +831,8 @@ export default function Page() {
                 highlight={highlightId === m.id}
                 onReact={(emoji) => react(m.id, emoji)}
                 onReply={() => startReply(m)}
+                onEdit={() => startEdit(m)}
+                onDelete={() => deleteMsg(m)}
                 pickerOpen={reactionPickerFor === m.id}
                 onTogglePicker={() =>
                   setReactionPickerFor((cur) => (cur === m.id ? null : m.id))
@@ -675,15 +867,22 @@ export default function Page() {
         input={input}
         setInput={setInput}
         onKeyDown={onKeyDown}
-        onSend={() => void send(input)}
+        onSend={() => (editingId ? void commitEdit() : void send(input))}
         onImagine={() => setImagineOpen(true)}
-        disabled={sending || uploading}
+        disabled={sending || uploading || recording}
         inputRef={inputRef}
         photoInputRef={photoInputRef}
         replyTarget={replyTarget}
         onCancelReply={() => setReplyTarget(null)}
         onPhotoPicked={(file) => void uploadPhoto(file)}
         uploading={uploading}
+        editing={editingId !== null}
+        onCancelEdit={cancelEdit}
+        recording={recording}
+        recordSeconds={recordSeconds}
+        onStartRecord={() => void startRecording()}
+        onStopRecord={stopRecording}
+        onCancelRecord={cancelRecording}
       />
     </div>
   );
@@ -784,6 +983,38 @@ function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
+function OnlineIndicator({
+  presence,
+  selfId,
+}: {
+  presence: Record<string, number>;
+  selfId: string;
+}) {
+  const now = Date.now();
+  const ACTIVE_WINDOW_MS = 60_000;
+  const activeUsers = USERS.filter((u) => {
+    const ts = presence[u.id];
+    if (!ts) return false;
+    return now - ts < ACTIVE_WINDOW_MS;
+  });
+  if (activeUsers.length === 0) return null;
+  const others = activeUsers.filter((u) => u.id !== selfId);
+  return (
+    <span
+      className="text-emerald-300 text-[11px] flex items-center gap-1"
+      title={activeUsers.map((u) => u.display).join(", ")}
+    >
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      {activeUsers.length} מחוברים
+      {others.length > 0 && others.length <= 3 && (
+        <span className="text-smoke-300/70">
+          ({others.map((u) => u.display).join(", ")})
+        </span>
+      )}
+    </span>
+  );
+}
+
 function IosInstallGuide({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-40 bg-smoke-950/80 backdrop-blur-sm grid place-items-center px-4">
@@ -872,6 +1103,8 @@ function Bubble({
   highlight,
   onReact,
   onReply,
+  onEdit,
+  onDelete,
   pickerOpen,
   onTogglePicker,
   onJumpTo,
@@ -881,6 +1114,8 @@ function Bubble({
   highlight: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   pickerOpen: boolean;
   onTogglePicker: () => void;
   onJumpTo: (id: string) => void;
@@ -888,6 +1123,7 @@ function Bubble({
   const isMe = msg.author?.id === myUserId;
   const isUser = msg.role === "user";
   const isLocal = msg.id.startsWith("local-");
+  const isDeleted = msg.deleted === true;
   const reactionEntries = Object.entries(msg.reactions ?? {});
 
   return (
@@ -959,9 +1195,36 @@ function Bubble({
           </div>
         )}
 
-        {msg.text && (
-          <div className="whitespace-pre-wrap">{renderMentions(msg.text)}</div>
+        {msg.voice && !isDeleted && (
+          <div className="my-1">
+            <audio
+              src={msg.voice.url}
+              controls
+              preload="metadata"
+              className="w-full max-w-[280px] rounded-lg"
+            />
+            {msg.voice.duration > 0 && (
+              <div className="text-[11px] text-smoke-300/70 mt-0.5">
+                {formatVoiceDuration(msg.voice.duration)}
+              </div>
+            )}
+          </div>
         )}
+
+        {isDeleted ? (
+          <div className="text-smoke-300/60 italic text-sm">
+            ההודעה נמחקה
+          </div>
+        ) : msg.text ? (
+          <div className="whitespace-pre-wrap">
+            {renderMentions(msg.text)}
+            {msg.editedAt && (
+              <span className="text-[10px] text-smoke-300/50 ms-1">
+                (נערך)
+              </span>
+            )}
+          </div>
+        ) : null}
 
         {reactionEntries.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
@@ -987,8 +1250,8 @@ function Bubble({
           </div>
         )}
 
-        {!isLocal && (
-          <div className="mt-1.5 flex items-center justify-end gap-3 text-[11px] text-smoke-300/60">
+        {!isLocal && !isDeleted && (
+          <div className="mt-1.5 flex items-center justify-end gap-3 text-[11px] text-smoke-300/60 flex-wrap">
             <button
               type="button"
               onClick={onTogglePicker}
@@ -1006,6 +1269,28 @@ function Bubble({
               <Reply className="w-3.5 h-3.5" />
               השב
             </button>
+            {isMe && msg.text && !msg.voice && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="flex items-center gap-1 hover:text-smoke-100 transition"
+                title="ערוך"
+              >
+                <Pencil className="w-3 h-3" />
+                ערוך
+              </button>
+            )}
+            {isMe && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex items-center gap-1 hover:text-red-300 transition"
+                title="מחק"
+              >
+                <Trash2 className="w-3 h-3" />
+                מחק
+              </button>
+            )}
             <button
               type="button"
               onClick={() => shareDeepLink(msg)}
@@ -1035,6 +1320,12 @@ function Bubble({
       </div>
     </div>
   );
+}
+
+function formatVoiceDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function shareDeepLink(msg: RoomMsg) {
@@ -1249,6 +1540,13 @@ function Composer({
   onCancelReply,
   onPhotoPicked,
   uploading,
+  editing,
+  onCancelEdit,
+  recording,
+  recordSeconds,
+  onStartRecord,
+  onStopRecord,
+  onCancelRecord,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -1262,6 +1560,13 @@ function Composer({
   onCancelReply: () => void;
   onPhotoPicked: (file: File) => void;
   uploading: boolean;
+  editing: boolean;
+  onCancelEdit: () => void;
+  recording: boolean;
+  recordSeconds: number;
+  onStartRecord: () => void;
+  onStopRecord: () => void;
+  onCancelRecord: () => void;
 }) {
   const [anchor, setAnchor] = useState<{
     start: number;
@@ -1307,7 +1612,23 @@ function Composer({
   return (
     <div className="fixed bottom-0 inset-x-0 z-20 border-t border-smoke-700/40 bg-smoke-950/80 backdrop-blur-md">
       <div className="max-w-3xl mx-auto px-3 sm:px-6 py-3 relative">
-        {replyTarget && (
+        {editing && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-amber-900/40 border border-amber-600/40 flex items-center gap-2">
+            <Pencil className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+            <div className="flex-1 min-w-0 text-xs text-amber-100">
+              עריכת הודעה — Esc לבטל
+            </div>
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="p-1 rounded-md text-amber-200/80 hover:text-amber-100"
+              aria-label="בטל עריכה"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {replyTarget && !editing && (
           <div className="mb-2 px-3 py-2 rounded-xl bg-smoke-800/60 border border-smoke-700/60 flex items-center gap-2">
             <Reply className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
             <div className="flex-1 min-w-0">
@@ -1325,6 +1646,29 @@ function Composer({
               aria-label="בטל תגובה"
             >
               <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {recording && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-red-900/50 border border-red-600/50 flex items-center gap-3">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse" />
+            <span className="text-sm text-red-100 flex-1">
+              מקליט... {formatVoiceDuration(recordSeconds)}
+            </span>
+            <button
+              type="button"
+              onClick={onCancelRecord}
+              className="text-xs px-2 py-1 rounded-md text-red-200 hover:text-red-100"
+            >
+              בטל
+            </button>
+            <button
+              type="button"
+              onClick={onStopRecord}
+              className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white font-medium flex items-center gap-1"
+            >
+              <Square className="w-3 h-3" />
+              שלח
             </button>
           </div>
         )}
@@ -1381,6 +1725,16 @@ function Composer({
               if (f) onPhotoPicked(f);
             }}
           />
+          <button
+            type="button"
+            onClick={onStartRecord}
+            disabled={recording || editing}
+            className="h-12 w-12 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
+            aria-label="הקלט הודעת קול"
+            title="הקלט הודעת קול"
+          >
+            <Mic className="w-5 h-5" />
+          </button>
           <textarea
             ref={inputRef}
             value={input}
