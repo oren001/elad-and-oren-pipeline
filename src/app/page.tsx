@@ -140,9 +140,12 @@ export default function Page() {
   } | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderStartRef = useRef<number>(0);
   const recorderTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const levelLoopRef = useRef<{ stop: () => void } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const isAtBottomRef = useRef(true);
@@ -748,6 +751,44 @@ export default function Page() {
       recorderStartRef.current = Date.now();
       setRecording(true);
       setRecordSeconds(0);
+      setAudioLevel(0);
+
+      try {
+        const Ctor =
+          typeof window !== "undefined"
+            ? window.AudioContext ||
+              (window as unknown as { webkitAudioContext?: typeof AudioContext })
+                .webkitAudioContext
+            : null;
+        if (Ctor) {
+          const audioCtx = new Ctor();
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          audioCtxRef.current = audioCtx;
+          const buffer = new Uint8Array(analyser.frequencyBinCount);
+          let cancelled = false;
+          const tick = () => {
+            if (cancelled) return;
+            analyser.getByteFrequencyData(buffer);
+            let sum = 0;
+            for (let i = 0; i < buffer.length; i++) sum += buffer[i] ?? 0;
+            const avg = sum / buffer.length / 255;
+            setAudioLevel(avg);
+            requestAnimationFrame(tick);
+          };
+          tick();
+          levelLoopRef.current = {
+            stop: () => {
+              cancelled = true;
+            },
+          };
+        }
+      } catch {
+        // analyser failure isn't critical
+      }
+
       recorderTickRef.current = setInterval(() => {
         setRecordSeconds(
           Math.floor((Date.now() - recorderStartRef.current) / 1000),
@@ -762,13 +803,26 @@ export default function Page() {
     }
   }
 
-  function stopRecording() {
-    const r = recorderRef.current;
-    if (!r) return;
+  function teardownRecording() {
     if (recorderTickRef.current) {
       clearInterval(recorderTickRef.current);
       recorderTickRef.current = null;
     }
+    if (levelLoopRef.current) {
+      levelLoopRef.current.stop();
+      levelLoopRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    setAudioLevel(0);
+  }
+
+  function stopRecording() {
+    const r = recorderRef.current;
+    if (!r) return;
+    teardownRecording();
     setRecording(false);
     if (r.state !== "inactive") r.stop();
     recorderRef.current = null;
@@ -782,10 +836,7 @@ export default function Page() {
       if (r.state !== "inactive") r.stop();
       r.stream?.getTracks().forEach((t) => t.stop());
     }
-    if (recorderTickRef.current) {
-      clearInterval(recorderTickRef.current);
-      recorderTickRef.current = null;
-    }
+    teardownRecording();
     setRecording(false);
     recorderRef.current = null;
   }
@@ -1320,6 +1371,7 @@ export default function Page() {
         onCancelEdit={cancelEdit}
         recording={recording}
         recordSeconds={recordSeconds}
+        audioLevel={audioLevel}
         onStartRecord={() => void startRecording()}
         onStopRecord={stopRecording}
         onCancelRecord={cancelRecording}
@@ -2010,19 +2062,7 @@ function Bubble({
         )}
 
         {msg.voice && !isDeleted && (
-          <div className="my-1">
-            <audio
-              src={msg.voice.url}
-              controls
-              preload="metadata"
-              className="w-full max-w-[280px] rounded-lg"
-            />
-            {msg.voice.duration > 0 && (
-              <div className="text-[11px] text-smoke-300/70 mt-0.5">
-                {formatVoiceDuration(msg.voice.duration)}
-              </div>
-            )}
-          </div>
+          <VoicePlayer url={msg.voice.url} duration={msg.voice.duration} />
         )}
 
         {isDeleted ? (
@@ -2122,13 +2162,17 @@ function Bubble({
         )}
 
         {pickerOpen && (
-          <div className="absolute -top-12 left-2 right-2 sm:right-auto sm:left-2 z-10 bg-smoke-900/95 border border-smoke-700/60 rounded-full px-2 py-1.5 shadow-xl glow-ring flex gap-1">
+          <div
+            className="mt-2 p-1 rounded-xl flex flex-wrap gap-0.5"
+            style={{ background: "rgba(0,0,0,0.15)" }}
+          >
             {REACTION_EMOJIS.map((e) => (
               <button
                 key={e}
                 type="button"
                 onClick={() => onReact(e)}
-                className="text-lg w-8 h-8 grid place-items-center rounded-full hover:bg-smoke-800/70 transition active:scale-95"
+                className="text-lg w-8 h-8 grid place-items-center rounded-full transition active:scale-95"
+                style={{ background: "rgba(0,0,0,0)" }}
               >
                 {e}
               </button>
@@ -2141,9 +2185,98 @@ function Bubble({
 }
 
 function formatVoiceDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  const safe = Math.max(0, Math.round(seconds));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function VoicePlayer({
+  url,
+  duration,
+}: {
+  url: string;
+  duration: number;
+}) {
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [actualDuration, setActualDuration] = useState(duration);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onTime = () => {
+      const d =
+        a.duration && Number.isFinite(a.duration)
+          ? a.duration
+          : actualDuration || 1;
+      setProgress(a.currentTime / d);
+    };
+    const onEnd = () => {
+      setPlaying(false);
+      setProgress(0);
+    };
+    const onMeta = () => {
+      if (a.duration && Number.isFinite(a.duration))
+        setActualDuration(a.duration);
+    };
+    a.addEventListener("timeupdate", onTime);
+    a.addEventListener("ended", onEnd);
+    a.addEventListener("loadedmetadata", onMeta);
+    return () => {
+      a.removeEventListener("timeupdate", onTime);
+      a.removeEventListener("ended", onEnd);
+      a.removeEventListener("loadedmetadata", onMeta);
+    };
+  }, [actualDuration]);
+
+  const remaining = Math.max(0, actualDuration - actualDuration * progress);
+
+  return (
+    <div className="flex items-center gap-2.5 py-1 my-0.5 min-w-[200px]">
+      <button
+        type="button"
+        onClick={() => {
+          const a = audioRef.current;
+          if (!a) return;
+          if (playing) {
+            a.pause();
+            setPlaying(false);
+          } else {
+            a.play().catch(() => {});
+            setPlaying(true);
+          }
+        }}
+        className="w-9 h-9 rounded-full grid place-items-center transition active:scale-95 shrink-0"
+        style={{ background: "rgba(0,0,0,0.18)" }}
+        aria-label={playing ? "השהה" : "נגן"}
+      >
+        {playing ? (
+          <Pause className="w-4 h-4" />
+        ) : (
+          <Play className="w-4 h-4 -scale-x-100" />
+        )}
+      </button>
+      <div
+        className="flex-1 relative h-1 rounded-full"
+        style={{ background: "rgba(0,0,0,0.18)" }}
+      >
+        <div
+          className="absolute inset-y-0 right-0 rounded-full"
+          style={{
+            background: "rgba(0,0,0,0.55)",
+            width: `${Math.min(100, progress * 100)}%`,
+            transition: "width 80ms linear",
+          }}
+        />
+      </div>
+      <span className="text-[11px] tabular-nums opacity-70 shrink-0">
+        {formatVoiceDuration(remaining)}
+      </span>
+      <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
+    </div>
+  );
 }
 
 function shareDeepLink(msg: RoomMsg) {
@@ -2417,14 +2550,22 @@ function PhotoAttachButton({
         }}
       />
       {sheetOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-smoke-950/70 backdrop-blur-sm grid place-items-end px-3 pb-3"
-          onClick={() => setSheetOpen(false)}
-        >
+        <>
           <div
-            className="w-full max-w-md bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-3 shadow-2xl glow-ring"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-30 bg-black/30"
+            onClick={() => setSheetOpen(false)}
+          />
+          <div
+            className="fixed bottom-0 inset-x-0 z-40 px-3 pointer-events-none"
+            style={{
+              paddingBottom:
+                "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
+            }}
           >
+            <div
+              className="w-full max-w-md mx-auto bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-3 shadow-2xl glow-ring pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
             <button
               type="button"
               onClick={() => {
@@ -2474,8 +2615,9 @@ function PhotoAttachButton({
             >
               ביטול
             </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </>
   );
@@ -2501,6 +2643,7 @@ function Composer({
   onStartRecord,
   onStopRecord,
   onCancelRecord,
+  audioLevel,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -2518,6 +2661,7 @@ function Composer({
   onCancelEdit: () => void;
   recording: boolean;
   recordSeconds: number;
+  audioLevel: number;
   onStartRecord: () => void;
   onStopRecord: () => void;
   onCancelRecord: () => void;
@@ -2604,11 +2748,38 @@ function Composer({
           </div>
         )}
         {recording && (
-          <div className="mb-2 px-3 py-2 rounded-xl bg-red-900/50 border border-red-600/50 flex items-center gap-3">
-            <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse" />
-            <span className="text-sm text-red-100 flex-1">
-              מקליט... {formatVoiceDuration(recordSeconds)}
+          <div className="mb-2 px-3 py-2.5 rounded-xl bg-red-900/55 border border-red-500/60 flex items-center gap-3">
+            <div
+              className="relative w-9 h-9 rounded-full bg-red-500 grid place-items-center shrink-0"
+              style={{
+                transform: `scale(${1 + audioLevel * 0.5})`,
+                transition: "transform 60ms linear",
+                boxShadow: `0 0 ${8 + audioLevel * 28}px rgba(255,80,80,${0.4 + audioLevel * 0.6})`,
+              }}
+            >
+              <Mic className="w-4 h-4 text-white" />
+            </div>
+            <span className="text-sm text-red-50 tabular-nums w-12 shrink-0">
+              {formatVoiceDuration(recordSeconds)}
             </span>
+            <div className="flex-1 flex items-center justify-center gap-1 h-6">
+              {Array.from({ length: 14 }).map((_, i) => {
+                const center = 6.5;
+                const distance = Math.abs(i - center) / center;
+                const peak = audioLevel * 100 * (1 - distance * 0.3);
+                const h = Math.max(8, Math.min(100, peak * 1.5 + 6));
+                return (
+                  <span
+                    key={i}
+                    className="w-1 rounded-full bg-red-200/80"
+                    style={{
+                      height: `${h}%`,
+                      transition: "height 80ms ease-out",
+                    }}
+                  />
+                );
+              })}
+            </div>
             <button
               type="button"
               onClick={onCancelRecord}
@@ -2619,7 +2790,7 @@ function Composer({
             <button
               type="button"
               onClick={onStopRecord}
-              className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white font-medium flex items-center gap-1"
+              className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white font-medium flex items-center gap-1"
             >
               <Square className="w-3 h-3" />
               שלח

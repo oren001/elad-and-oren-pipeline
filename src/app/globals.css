@@ -12,8 +12,10 @@
   --theme-bubble-me-from: rgba(95, 160, 90, 0.95);
   --theme-bubble-me-to: rgba(63, 128, 56, 0.95);
   --theme-bubble-me-border: rgba(143, 194, 139, 0.4);
+  --theme-bubble-me-text: #f1f7f0;
   --theme-bubble-bot-bg: rgba(20, 44, 17, 0.85);
   --theme-bubble-bot-border: rgba(95, 160, 90, 0.35);
+  --theme-bubble-bot-text: #e7f3e6;
   --theme-glow-ring: rgba(143, 194, 139, 0.35);
   --theme-glow-mid: rgba(95, 160, 90, 0.25);
   --theme-glow-far: rgba(63, 128, 56, 0.18);
@@ -30,8 +32,10 @@
   --theme-bubble-me-from: rgba(255, 122, 89, 0.95);
   --theme-bubble-me-to: rgba(224, 57, 95, 0.95);
   --theme-bubble-me-border: rgba(255, 180, 140, 0.4);
+  --theme-bubble-me-text: #ffffff;
   --theme-bubble-bot-bg: rgba(74, 26, 50, 0.85);
   --theme-bubble-bot-border: rgba(255, 122, 89, 0.35);
+  --theme-bubble-bot-text: #fce4ea;
   --theme-glow-ring: rgba(255, 180, 140, 0.4);
   --theme-glow-mid: rgba(255, 122, 89, 0.3);
   --theme-glow-far: rgba(224, 57, 95, 0.2);
@@ -45,11 +49,13 @@
   --theme-bg-2: #1a0a35;
   --theme-radial-1: rgba(0, 240, 255, 0.18);
   --theme-radial-2: rgba(255, 60, 200, 0.2);
-  --theme-bubble-me-from: rgba(0, 240, 255, 0.85);
-  --theme-bubble-me-to: rgba(120, 60, 220, 0.92);
+  --theme-bubble-me-from: rgba(0, 200, 240, 0.92);
+  --theme-bubble-me-to: rgba(120, 60, 220, 0.95);
   --theme-bubble-me-border: rgba(0, 240, 255, 0.5);
+  --theme-bubble-me-text: #06031f;
   --theme-bubble-bot-bg: rgba(20, 5, 50, 0.85);
   --theme-bubble-bot-border: rgba(255, 60, 200, 0.4);
+  --theme-bubble-bot-text: #e8f8ff;
   --theme-glow-ring: rgba(0, 240, 255, 0.45);
   --theme-glow-mid: rgba(255, 60, 200, 0.3);
   --theme-glow-far: rgba(120, 60, 220, 0.25);
@@ -63,11 +69,13 @@
   --theme-bg-2: #053450;
   --theme-radial-1: rgba(80, 200, 220, 0.2);
   --theme-radial-2: rgba(40, 100, 180, 0.22);
-  --theme-bubble-me-from: rgba(80, 200, 220, 0.95);
-  --theme-bubble-me-to: rgba(40, 100, 180, 0.95);
+  --theme-bubble-me-from: rgba(80, 180, 220, 0.95);
+  --theme-bubble-me-to: rgba(40, 90, 160, 0.95);
   --theme-bubble-me-border: rgba(140, 220, 240, 0.4);
+  --theme-bubble-me-text: #ffffff;
   --theme-bubble-bot-bg: rgba(5, 50, 75, 0.85);
   --theme-bubble-bot-border: rgba(80, 200, 220, 0.35);
+  --theme-bubble-bot-text: #e6f4f8;
   --theme-glow-ring: rgba(140, 220, 240, 0.4);
   --theme-glow-mid: rgba(80, 200, 220, 0.3);
   --theme-glow-far: rgba(40, 100, 180, 0.2);
@@ -84,8 +92,10 @@
   --theme-bubble-me-from: rgba(255, 200, 80, 0.95);
   --theme-bubble-me-to: rgba(220, 130, 60, 0.95);
   --theme-bubble-me-border: rgba(255, 220, 140, 0.4);
+  --theme-bubble-me-text: #2a1505;
   --theme-bubble-bot-bg: rgba(33, 16, 58, 0.88);
   --theme-bubble-bot-border: rgba(150, 80, 255, 0.4);
+  --theme-bubble-bot-text: #f4ecfa;
   --theme-glow-ring: rgba(255, 200, 80, 0.4);
   --theme-glow-mid: rgba(150, 80, 255, 0.3);
   --theme-glow-far: rgba(255, 200, 80, 0.18);
@@ -102,8 +112,10 @@
   --theme-bubble-me-from: rgba(255, 110, 130, 0.95);
   --theme-bubble-me-to: rgba(255, 160, 90, 0.95);
   --theme-bubble-me-border: rgba(255, 200, 200, 0.45);
+  --theme-bubble-me-text: #2a050e;
   --theme-bubble-bot-bg: rgba(15, 80, 95, 0.88);
   --theme-bubble-bot-border: rgba(80, 220, 200, 0.4);
+  --theme-bubble-bot-text: #fbf6ec;
   --theme-glow-ring: rgba(255, 200, 200, 0.4);
   --theme-glow-mid: rgba(80, 220, 200, 0.3);
   --theme-glow-far: rgba(255, 110, 130, 0.2);
@@ -120,8 +132,10 @@
   --theme-bubble-me-from: rgba(220, 50, 60, 0.95);
   --theme-bubble-me-to: rgba(120, 30, 40, 0.95);
   --theme-bubble-me-border: rgba(255, 180, 140, 0.4);
+  --theme-bubble-me-text: #ffffff;
   --theme-bubble-bot-bg: rgba(30, 10, 12, 0.9);
   --theme-bubble-bot-border: rgba(220, 50, 60, 0.4);
+  --theme-bubble-bot-text: #f9e5e0;
   --theme-glow-ring: rgba(255, 180, 140, 0.4);
   --theme-glow-mid: rgba(220, 50, 60, 0.3);
   --theme-glow-far: rgba(120, 30, 40, 0.2);
@@ -138,8 +152,10 @@
   --theme-bubble-me-from: rgba(220, 255, 80, 0.95);
   --theme-bubble-me-to: rgba(120, 200, 30, 0.95);
   --theme-bubble-me-border: rgba(240, 255, 180, 0.45);
-  --theme-bubble-bot-bg: rgba(35, 35, 8, 0.88);
+  --theme-bubble-me-text: #1a1a05;
+  --theme-bubble-bot-bg: rgba(35, 35, 8, 0.92);
   --theme-bubble-bot-border: rgba(220, 255, 80, 0.4);
+  --theme-bubble-bot-text: #f8f8e0;
   --theme-glow-ring: rgba(240, 255, 180, 0.45);
   --theme-glow-mid: rgba(220, 255, 80, 0.3);
   --theme-glow-far: rgba(120, 200, 30, 0.2);
@@ -156,8 +172,10 @@
   --theme-bubble-me-from: rgba(220, 140, 80, 0.95);
   --theme-bubble-me-to: rgba(160, 80, 50, 0.95);
   --theme-bubble-me-border: rgba(255, 200, 150, 0.45);
+  --theme-bubble-me-text: #ffffff;
   --theme-bubble-bot-bg: rgba(48, 32, 20, 0.88);
   --theme-bubble-bot-border: rgba(220, 140, 80, 0.4);
+  --theme-bubble-bot-text: #f3e6d2;
   --theme-glow-ring: rgba(255, 200, 150, 0.4);
   --theme-glow-mid: rgba(220, 140, 80, 0.3);
   --theme-glow-far: rgba(160, 80, 50, 0.2);
@@ -174,8 +192,10 @@
   --theme-bubble-me-from: rgba(255, 100, 200, 0.95);
   --theme-bubble-me-to: rgba(80, 80, 255, 0.95);
   --theme-bubble-me-border: rgba(255, 200, 240, 0.45);
+  --theme-bubble-me-text: #ffffff;
   --theme-bubble-bot-bg: rgba(35, 10, 60, 0.88);
   --theme-bubble-bot-border: rgba(255, 100, 200, 0.4);
+  --theme-bubble-bot-text: #f8ecff;
   --theme-glow-ring: rgba(255, 200, 240, 0.5);
   --theme-glow-mid: rgba(80, 220, 100, 0.3);
   --theme-glow-far: rgba(255, 100, 200, 0.25);
@@ -211,15 +231,26 @@ body {
 
 .bubble-me {
   background: linear-gradient(180deg, var(--theme-bubble-me-from), var(--theme-bubble-me-to));
-  color: #f1f7f0;
+  color: var(--theme-bubble-me-text);
   border: 1px solid var(--theme-bubble-me-border);
 }
 
 .bubble-bot {
   background: var(--theme-bubble-bot-bg);
-  color: var(--theme-text);
+  color: var(--theme-bubble-bot-text);
   border: 1px solid var(--theme-bubble-bot-border);
   backdrop-filter: blur(6px);
+}
+
+/* Inside bubbles, prefer opacity over hardcoded grays so muted text
+   inherits the bubble color (works for both light and dark bubble bgs). */
+.bubble-me [class*="text-smoke-300"],
+.bubble-me [class*="text-smoke-400"],
+.bubble-me [class*="text-smoke-100"] {
+  color: inherit;
+}
+.bubble-bot [class*="text-smoke-100"] {
+  color: inherit;
 }
 
 .glow-ring {
