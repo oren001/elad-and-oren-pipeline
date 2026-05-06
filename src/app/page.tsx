@@ -337,10 +337,18 @@ export default function Page() {
 
 async function readErrorDetail(res: Response): Promise<string> {
   try {
-    const data = (await res.json()) as { error?: string; status?: number };
+    const data = (await res.json()) as {
+      error?: string;
+      status?: number;
+      body?: unknown;
+    };
     const code = data?.error ?? "unknown";
     const status = data?.status ?? res.status;
-    return `${res.status}/${code}${status !== res.status ? `(${status})` : ""}`;
+    const bodyExtra =
+      data?.body !== undefined && data?.body !== null
+        ? ` | body: ${JSON.stringify(data.body).slice(0, 400)}`
+        : "";
+    return `${res.status}/${code}${status !== res.status ? `(${status})` : ""}${bodyExtra}`;
   } catch {
     return `${res.status}`;
   }
