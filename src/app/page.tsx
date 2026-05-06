@@ -1556,23 +1556,39 @@ function formatDateLabel(ts: number): string {
 function BuildBadge() {
   const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME;
   const buildSha = process.env.NEXT_PUBLIC_BUILD_SHA;
+  const [now, setNow] = useState(() =>
+    typeof Date !== "undefined" ? Date.now() : 0,
+  );
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
   if (!buildTime) return null;
   const d = new Date(buildTime);
   if (Number.isNaN(d.getTime())) return null;
-  const formatted = d.toLocaleString("he-IL", {
-    day: "numeric",
-    month: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
   return (
     <span
-      className="text-smoke-500/70 text-[10px] tabular-nums"
+      className="text-[11px] opacity-70 tabular-nums"
       title={`build ${buildSha ?? ""} @ ${buildTime}`}
     >
-      עודכן {formatted}
+      עודכן {formatRelativeIL(d, now)}
     </span>
   );
+}
+
+function formatRelativeIL(d: Date, now: number): string {
+  const diffMs = now - d.getTime();
+  if (diffMs < 0) return "כרגע";
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 45) return "כרגע";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `לפני ${min} ד׳`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `לפני ${hr} שע׳`;
+  const day = Math.floor(hr / 24);
+  if (day === 1) return "אתמול";
+  if (day < 7) return `לפני ${day} ימים`;
+  return d.toLocaleDateString("he-IL", { day: "numeric", month: "short" });
 }
 
 function OnlineIndicator({
