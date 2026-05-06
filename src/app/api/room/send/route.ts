@@ -1,6 +1,21 @@
-import { appendMessages, newId, type RoomMsg } from "@/lib/room";
+import {
+  appendMessages,
+  newId,
+  type RoomMsg,
+  shouldTriggerAutoImage,
+  markAutoImageFired,
+  readDailyCount,
+  incrDailyCount,
+  DAILY_LIMIT,
+} from "@/lib/room";
 import { generate } from "@/lib/persona";
 import { notifyMentions } from "@/lib/notify";
+import { buildAutoPrompt } from "@/lib/auto-image";
+import { startGeneration } from "@/lib/leonardo";
+
+const AUTO_IMAGE_PROBABILITY = 0.18;
+const AUTO_IMAGE_KEYWORD_BOOST = 0.5;
+const AUTO_IMAGE_KEYWORDS = /ערן|מצחיק|תראו|תמונה|דמיין|ציור|חלום|מסטול|רעב/;
 
 export const runtime = "edge";
 
@@ -64,7 +79,7 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
-  const messages = await appendMessages(...toAppend);
+  let messages = await appendMessages(...toAppend);
 
   await notifyMentions({
     text,
@@ -72,7 +87,46 @@ export async function POST(req: Request): Promise<Response> {
     authorId,
   });
 
-  return Response.json({ messages });
+  let autoImage: { msgId: string; generationId: string } | null = null;
+  try {
+    const cap = await readDailyCount();
+    if (cap < DAILY_LIMIT) {
+      const baseProb = AUTO_IMAGE_PROBABILITY;
+      const boosted = AUTO_IMAGE_KEYWORDS.test(text)
+        ? Math.min(0.95, baseProb + AUTO_IMAGE_KEYWORD_BOOST)
+        : baseProb;
+      if (Math.random() < boosted) {
+        const cool = await shouldTriggerAutoImage();
+        if (cool) {
+          const prompt = buildAutoPrompt(text);
+          const result = await startGeneration({ prompt, refImageId: null });
+          if (result.ok) {
+            await incrDailyCount();
+            await markAutoImageFired();
+            const pendingId = newId();
+            const pending: RoomMsg = {
+              id: pendingId,
+              ts: Date.now() + 2,
+              role: "bot",
+              text: "המסטולון מצייר משהו... 🟢",
+              image: {
+                prompt,
+                refUsed: false,
+                status: "pending",
+                generationId: result.generationId,
+              },
+            };
+            messages = await appendMessages(pending);
+            autoImage = { msgId: pendingId, generationId: result.generationId };
+          }
+        }
+      }
+    }
+  } catch {
+    // never let auto-image break the send path
+  }
+
+  return Response.json({ messages, autoImage });
 }
 
 function parseReplyTo(

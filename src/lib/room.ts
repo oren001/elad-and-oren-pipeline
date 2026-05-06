@@ -190,6 +190,28 @@ export async function shouldAnnounceReturn(userId: string): Promise<boolean> {
 const PRESENCE_PREFIX = "presence:";
 const PRESENCE_TTL_SEC = 90;
 
+const AUTO_IMG_TS_KEY = "auto_img:last_ts";
+const AUTO_IMG_COOLDOWN_MS = 8 * 60 * 1000;
+
+export async function shouldTriggerAutoImage(): Promise<boolean> {
+  const kv = getKv();
+  if (!kv) return false;
+  const raw = await kv.get(AUTO_IMG_TS_KEY);
+  if (raw) {
+    const last = Number(raw) || 0;
+    if (Date.now() - last < AUTO_IMG_COOLDOWN_MS) return false;
+  }
+  return true;
+}
+
+export async function markAutoImageFired(): Promise<void> {
+  const kv = getKv();
+  if (!kv) return;
+  await kv.put(AUTO_IMG_TS_KEY, String(Date.now()), {
+    expirationTtl: 60 * 60 * 24,
+  });
+}
+
 export async function setHeartbeat(userId: string): Promise<void> {
   const kv = getKv();
   if (!kv) return;

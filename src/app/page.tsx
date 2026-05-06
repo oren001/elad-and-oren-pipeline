@@ -358,9 +358,34 @@ export default function Page() {
           replyTo: replyTarget,
         }),
       });
-      const data = (await res.json()) as { messages?: RoomMsg[] };
+      const data = (await res.json()) as {
+        messages?: RoomMsg[];
+        autoImage?: { msgId: string; generationId: string } | null;
+      };
       if (Array.isArray(data.messages)) setMessages(data.messages);
       setReplyTarget(null);
+      if (data.autoImage) {
+        const { msgId, generationId } = data.autoImage;
+        void (async () => {
+          try {
+            const url = await pollGeneration(generationId);
+            await fetch("/api/room/imagine/finalize", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ msgId, imageUrl: url }),
+            });
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : "unknown";
+            await fetch("/api/room/imagine/finalize", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ msgId, error: detail }),
+            });
+          } finally {
+            void refresh();
+          }
+        })();
+      }
     } catch {
       // silent — next poll resyncs
     } finally {
@@ -1787,16 +1812,6 @@ function Composer({
         <div className="flex items-end gap-2">
           <button
             type="button"
-            onClick={onImagine}
-            disabled={disabled}
-            className="h-11 w-11 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
-            aria-label="תצייר"
-            title="תצייר לחדר"
-          >
-            <Sparkles className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
             onClick={() => photoInputRef.current?.click()}
             disabled={uploading || disabled}
             className="h-11 w-11 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
@@ -1847,8 +1862,8 @@ function Composer({
             }
             onBlur={() => setTimeout(() => setAnchor(null), 150)}
             rows={1}
-            placeholder={editing ? "ערוך הודעה..." : "כתוב לחדר..."}
-            className="flex-1 input-glow resize-none rounded-2xl bg-smoke-900/70 border border-smoke-700/60 px-4 py-3 text-smoke-100 placeholder:text-smoke-300/50 max-h-40"
+            placeholder={editing ? "ערוך הודעה..." : "כתוב משהו..."}
+            className="flex-1 input-glow resize-none rounded-2xl bg-smoke-900/70 border border-smoke-700/60 px-5 py-3.5 text-smoke-100 placeholder:text-smoke-300/50 text-base min-h-[48px] max-h-40"
             dir="rtl"
           />
           {input.trim() ? (
