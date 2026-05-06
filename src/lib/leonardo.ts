@@ -88,17 +88,50 @@ export async function startGeneration(opts: {
 }
 
 function extractGenerationId(data: unknown): string | null {
-  if (!data || typeof data !== "object") return null;
-  const d = data as Record<string, unknown>;
-  const candidates: Array<unknown> = [
-    (d.sdGenerationJob as Record<string, unknown> | undefined)?.generationId,
-    (d.generation as Record<string, unknown> | undefined)?.id,
-    (d.generations as Record<string, unknown> | undefined)?.id,
-    d.id,
-    d.generationId,
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const PREFERRED = ["generationId", "generation_id", "id"];
+  const WRAPPERS = [
+    "sdGenerationJob",
+    "generation",
+    "generations",
+    "generations_by_pk",
+    "data",
+    "result",
+    "job",
   ];
-  for (const c of candidates) {
-    if (typeof c === "string" && c.length > 0) return c;
+  const seen = new WeakSet<object>();
+
+  function walk(node: unknown, depth: number): string | null {
+    if (depth > 5 || node == null) return null;
+    if (typeof node === "string") {
+      return UUID_RE.test(node) ? node : null;
+    }
+    if (typeof node !== "object") return null;
+    if (seen.has(node as object)) return null;
+    seen.add(node as object);
+
+    const obj = node as Record<string, unknown>;
+
+    for (const k of PREFERRED) {
+      const v = obj[k];
+      if (typeof v === "string" && UUID_RE.test(v)) return v;
+    }
+
+    for (const w of WRAPPERS) {
+      if (w in obj) {
+        const found = walk(obj[w], depth + 1);
+        if (found) return found;
+      }
+    }
+
+    for (const v of Object.values(obj)) {
+      const found = walk(v, depth + 1);
+      if (found) return found;
+    }
+
+    return null;
   }
-  return null;
+
+  return walk(data, 0);
 }
