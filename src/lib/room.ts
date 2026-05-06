@@ -28,7 +28,7 @@ export type RoomMsg = {
   reactions?: Record<string, string[]>;
   replyTo?: { id: string; authorName: string; snippet: string };
   uploaded?: boolean;
-  voice?: { url: string; duration: number };
+  voice?: { url: string; duration: number; transcript?: string };
   editedAt?: number;
   deleted?: boolean;
 };

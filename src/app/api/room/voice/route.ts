@@ -54,6 +54,11 @@ export async function POST(req: Request): Promise<Response> {
   const authorName =
     String(form.get("authorName") ?? "").trim().slice(0, 30) || "אנונימי";
   const durationMs = Number(form.get("duration") ?? 0) || 0;
+  const transcriptRaw = form.get("transcript");
+  const transcript =
+    typeof transcriptRaw === "string" && transcriptRaw.trim()
+      ? transcriptRaw.trim().slice(0, 4000)
+      : "";
   const replyToRaw = form.get("replyTo");
   const replyTo = parseReplyTo(replyToRaw);
 
@@ -77,7 +82,11 @@ export async function POST(req: Request): Promise<Response> {
     ts: Date.now(),
     author: { id: authorId, name: authorName },
     role: "user",
-    voice: { url, duration: Math.max(0, Math.floor(durationMs / 1000)) },
+    voice: {
+      url,
+      duration: Math.max(0, Math.floor(durationMs / 1000)),
+      ...(transcript ? { transcript } : {}),
+    },
     ...(replyTo ? { replyTo } : {}),
   };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   Send,
   Sparkles,
@@ -60,6 +60,18 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string; confidence: number }>> & { length: number } & { [index: number]: ArrayLike<{ transcript: string; confidence: number }> & { isFinal: boolean } } }) => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
+  onend: (() => void) | null;
+};
+
 type ReplyTo = { id: string; authorName: string; snippet: string };
 
 type RoomMsg = {
@@ -73,7 +85,7 @@ type RoomMsg = {
   reactions?: Record<string, string[]>;
   replyTo?: ReplyTo;
   uploaded?: boolean;
-  voice?: { url: string; duration: number };
+  voice?: { url: string; duration: number; transcript?: string };
   editedAt?: number;
   deleted?: boolean;
 };
@@ -130,6 +142,7 @@ export default function Page() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const profileFileRef = useRef<HTMLInputElement | null>(null);
   const [profileUploading, setProfileUploading] = useState(false);
+  const [profileCropFile, setProfileCropFile] = useState<File | null>(null);
   const [themeId, setThemeId] = useState<string | null>(null);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -141,11 +154,16 @@ export default function Page() {
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [liveTranscript, setLiveTranscript] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderStartRef = useRef<number>(0);
   const recorderTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const levelLoopRef = useRef<{ stop: () => void } | null>(null);
+  const recognitionRef = useRef<{
+    instance: SpeechRecognitionLike | null;
+    finalText: string;
+  } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const [hideHeader, setHideHeader] = useState(false);
@@ -281,14 +299,14 @@ export default function Page() {
     };
   }, []);
 
-  async function uploadProfile(file: File) {
+  async function uploadProfile(blob: Blob, mime = "image/jpeg") {
     if (!self) return;
     if (profileUploading) return;
     setProfileUploading(true);
     try {
       const fd = new FormData();
       fd.append("userId", self.id);
-      fd.append("file", file);
+      fd.append("file", new File([blob], "profile.jpg", { type: mime }));
       const res = await fetch("/api/user/profile", {
         method: "POST",
         body: fd,
@@ -756,7 +774,10 @@ export default function Page() {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         const duration = Date.now() - recorderStartRef.current;
-        await uploadVoice(blob, duration);
+        const transcript = (recognitionRef.current?.finalText ?? "").trim();
+        recognitionRef.current = null;
+        setLiveTranscript("");
+        await uploadVoice(blob, duration, transcript);
       };
       recorder.start();
       recorderRef.current = recorder;
@@ -764,6 +785,44 @@ export default function Page() {
       setRecording(true);
       setRecordSeconds(0);
       setAudioLevel(0);
+
+      // Live transcription via Web Speech API (Hebrew first)
+      try {
+        const SR =
+          (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike })
+            .SpeechRecognition ||
+          (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike })
+            .webkitSpeechRecognition;
+        if (SR) {
+          const r: SpeechRecognitionLike = new SR();
+          r.lang = "he-IL";
+          r.continuous = true;
+          r.interimResults = true;
+          recognitionRef.current = { instance: r, finalText: "" };
+          setLiveTranscript("");
+          r.onresult = (e) => {
+            let interim = "";
+            let final = recognitionRef.current?.finalText ?? "";
+            for (let i = 0; i < e.results.length; i++) {
+              const res = e.results[i] as ArrayLike<{ transcript: string }> & { isFinal: boolean };
+              const piece = res[0]!.transcript;
+              if (res.isFinal) final += piece;
+              else interim += piece;
+            }
+            if (recognitionRef.current) recognitionRef.current.finalText = final;
+            setLiveTranscript((final + interim).trim());
+          };
+          r.onerror = () => {};
+          r.onend = () => {};
+          try {
+            r.start();
+          } catch {
+            // some browsers throw if start called while not idle
+          }
+        }
+      } catch {
+        // transcription failure is non-blocking
+      }
 
       try {
         const Ctor =
@@ -828,6 +887,13 @@ export default function Page() {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
+    if (recognitionRef.current?.instance) {
+      try {
+        recognitionRef.current.instance.stop();
+      } catch {
+        // ignore
+      }
+    }
     setAudioLevel(0);
   }
 
@@ -853,7 +919,7 @@ export default function Page() {
     recorderRef.current = null;
   }
 
-  async function uploadVoice(blob: Blob, durationMs: number) {
+  async function uploadVoice(blob: Blob, durationMs: number, transcript = "") {
     if (!self) return;
     const fd = new FormData();
     const ext = (blob.type.split("/")[1] ?? "webm").split(";")[0];
@@ -861,6 +927,7 @@ export default function Page() {
     fd.append("authorId", self.id);
     fd.append("authorName", self.display);
     fd.append("duration", String(durationMs));
+    if (transcript) fd.append("transcript", transcript);
     if (replyTarget) fd.append("replyTo", JSON.stringify(replyTarget));
     try {
       const res = await fetch("/api/room/voice", {
@@ -1286,6 +1353,17 @@ export default function Page() {
         />
       )}
 
+      {profileCropFile && (
+        <FaceCrop
+          file={profileCropFile}
+          onCancel={() => setProfileCropFile(null)}
+          onCrop={async (blob) => {
+            setProfileCropFile(null);
+            await uploadProfile(blob, "image/jpeg");
+          }}
+        />
+      )}
+
       {profileModalOpen && self && (
         <div className="fixed inset-0 z-30 bg-smoke-950/70 backdrop-blur-sm grid place-items-center px-4">
           <div className="w-full max-w-sm bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-5 shadow-2xl glow-ring">
@@ -1350,7 +1428,7 @@ export default function Page() {
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) void uploadProfile(f);
+                if (f) setProfileCropFile(f);
               }}
             />
             <p className="text-[10px] text-smoke-400/70 mt-3 text-center">
@@ -1388,6 +1466,7 @@ export default function Page() {
         recording={recording}
         recordSeconds={recordSeconds}
         audioLevel={audioLevel}
+        liveTranscript={liveTranscript}
         onStartRecord={() => void startRecording()}
         onStopRecord={stopRecording}
         onCancelRecord={cancelRecording}
@@ -1954,6 +2033,235 @@ function Lightbox({
   );
 }
 
+function FaceCrop({
+  file,
+  onCancel,
+  onCrop,
+}: {
+  file: File;
+  onCancel: () => void;
+  onCrop: (blob: Blob) => void;
+}) {
+  const imgUrl = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => () => URL.revokeObjectURL(imgUrl), [imgUrl]);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [imgRect, setImgRect] = useState<{
+    left: number;
+    top: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  const [circle, setCircle] = useState<{
+    x: number;
+    y: number;
+    r: number;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    cx: number;
+    cy: number;
+  } | null>(null);
+
+  function recalc() {
+    const img = imgRef.current;
+    const cont = containerRef.current;
+    if (!img || !cont) return;
+    const cb = cont.getBoundingClientRect();
+    const ib = img.getBoundingClientRect();
+    const rect = {
+      left: ib.left - cb.left,
+      top: ib.top - cb.top,
+      w: ib.width,
+      h: ib.height,
+    };
+    setImgRect(rect);
+    setCircle((prev) => {
+      const r = prev?.r ?? Math.min(rect.w, rect.h) * 0.3;
+      const cx = prev?.x ?? rect.left + rect.w / 2;
+      const cy = prev?.y ?? rect.top + rect.h / 2;
+      return clampCircle({ x: cx, y: cy, r }, rect);
+    });
+  }
+
+  useEffect(() => {
+    const onResize = () => recalc();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  function onPointerDown(e: React.PointerEvent) {
+    if (!circle) return;
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      cx: circle.x,
+      cy: circle.y,
+    };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+  function onPointerMove(e: React.PointerEvent) {
+    if (!dragRef.current || !circle || !imgRect) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setCircle(
+      clampCircle(
+        { x: dragRef.current.cx + dx, y: dragRef.current.cy + dy, r: circle.r },
+        imgRect,
+      ),
+    );
+  }
+  function onPointerUp() {
+    dragRef.current = null;
+  }
+
+  function setRadius(r: number) {
+    if (!circle || !imgRect) return;
+    const max = Math.min(imgRect.w, imgRect.h) / 2;
+    const newR = Math.max(28, Math.min(max, r));
+    setCircle(clampCircle({ ...circle, r: newR }, imgRect));
+  }
+
+  async function handleConfirm() {
+    if (busy) return;
+    if (!circle || !imgRect || !imgRef.current) return;
+    const img = imgRef.current;
+    const scale = img.naturalWidth / imgRect.w;
+    const cx = (circle.x - imgRect.left) * scale;
+    const cy = (circle.y - imgRect.top) * scale;
+    const r = circle.r * scale;
+    const sx = Math.max(0, cx - r);
+    const sy = Math.max(0, cy - r);
+    const s = Math.min(2 * r, img.naturalWidth - sx, img.naturalHeight - sy);
+
+    const out = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = out;
+    canvas.height = out;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(img, sx, sy, s, s, 0, 0, out, out);
+
+    setBusy(true);
+    canvas.toBlob(
+      (blob) => {
+        setBusy(false);
+        if (blob) onCrop(blob);
+      },
+      "image/jpeg",
+      0.9,
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
+      <div className="px-4 py-3 flex items-center gap-2 text-white">
+        <h2 className="flex-1 font-semibold">חתוך את הפנים</h2>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-1.5 rounded-full hover:bg-white/10"
+          aria-label="סגור"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <div
+        ref={containerRef}
+        className="flex-1 relative grid place-items-center overflow-hidden touch-none select-none"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={imgRef}
+          src={imgUrl}
+          alt=""
+          onLoad={recalc}
+          className="max-w-full max-h-full object-contain pointer-events-none"
+        />
+        {circle && (
+          <svg
+            className="absolute inset-0 pointer-events-none"
+            width="100%"
+            height="100%"
+          >
+            <defs>
+              <mask id="hl-circle-mask">
+                <rect width="100%" height="100%" fill="white" />
+                <circle cx={circle.x} cy={circle.y} r={circle.r} fill="black" />
+              </mask>
+            </defs>
+            <rect
+              width="100%"
+              height="100%"
+              fill="rgba(0,0,0,0.65)"
+              mask="url(#hl-circle-mask)"
+            />
+            <circle
+              cx={circle.x}
+              cy={circle.y}
+              r={circle.r}
+              fill="none"
+              stroke="white"
+              strokeWidth={2.5}
+              strokeDasharray="4 4"
+              style={{
+                filter: "drop-shadow(0 0 8px rgba(0,0,0,0.7))",
+              }}
+            />
+          </svg>
+        )}
+      </div>
+      <div className="px-4 py-3 space-y-3 bg-black/95 border-t border-white/10">
+        <input
+          type="range"
+          min={30}
+          max={Math.min(imgRect?.w ?? 320, imgRect?.h ?? 320) / 2 || 200}
+          value={circle?.r ?? 100}
+          onChange={(e) => setRadius(Number(e.target.value))}
+          className="w-full accent-emerald-500"
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 h-11 rounded-xl bg-white/10 text-white"
+          >
+            ביטול
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleConfirm()}
+            disabled={busy || !circle}
+            className="flex-1 h-11 rounded-xl bg-emerald-600 text-white font-medium disabled:opacity-60"
+          >
+            אשר וחתוך
+          </button>
+        </div>
+        <p className="text-[11px] text-white/60 text-center">
+          גרור את העיגול לכוון פנים, השתמש בסליידר לגודל
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function clampCircle(
+  c: { x: number; y: number; r: number },
+  rect: { left: number; top: number; w: number; h: number },
+): { x: number; y: number; r: number } {
+  const r = Math.min(c.r, rect.w / 2, rect.h / 2);
+  const x = Math.max(rect.left + r, Math.min(rect.left + rect.w - r, c.x));
+  const y = Math.max(rect.top + r, Math.min(rect.top + rect.h - r, c.y));
+  return { x, y, r };
+}
+
 function IdentityPicker({ onPick }: { onPick: (u: User) => void }) {
   return (
     <div className="min-h-screen bg-smoke-950 grid place-items-center px-4 py-8 relative overflow-hidden">
@@ -2094,7 +2402,18 @@ function Bubble({
         )}
 
         {msg.voice && !isDeleted && (
-          <VoicePlayer url={msg.voice.url} duration={msg.voice.duration} />
+          <div>
+            {msg.voice.transcript && (
+              <div className="mb-1 text-[15px] whitespace-pre-wrap leading-relaxed">
+                {msg.voice.transcript}
+              </div>
+            )}
+            <VoicePlayer
+              url={msg.voice.url}
+              duration={msg.voice.duration}
+              compact={Boolean(msg.voice.transcript)}
+            />
+          </div>
         )}
 
         {isDeleted ? (
@@ -2227,9 +2546,11 @@ function formatVoiceDuration(seconds: number): string {
 function VoicePlayer({
   url,
   duration,
+  compact,
 }: {
   url: string;
   duration: number;
+  compact?: boolean;
 }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -2267,7 +2588,9 @@ function VoicePlayer({
   const remaining = Math.max(0, actualDuration - actualDuration * progress);
 
   return (
-    <div className="flex items-center gap-2.5 py-1 my-0.5 min-w-[200px]">
+    <div
+      className={`flex items-center gap-2 ${compact ? "py-0.5 mt-0.5 opacity-80 text-xs" : "py-1 my-0.5"} min-w-[180px]`}
+    >
       <button
         type="button"
         onClick={() => {
@@ -2685,6 +3008,7 @@ function Composer({
   onStopRecord,
   onCancelRecord,
   audioLevel,
+  liveTranscript,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -2703,6 +3027,7 @@ function Composer({
   recording: boolean;
   recordSeconds: number;
   audioLevel: number;
+  liveTranscript: string;
   onStartRecord: () => void;
   onStopRecord: () => void;
   onCancelRecord: () => void;
@@ -2786,6 +3111,14 @@ function Composer({
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+        {recording && liveTranscript && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-emerald-900/40 border border-emerald-600/30">
+            <div className="text-[11px] text-emerald-300/90 mb-0.5">תמליל</div>
+            <div className="text-sm text-emerald-50 whitespace-pre-wrap">
+              {liveTranscript}
+            </div>
           </div>
         )}
         {recording && (
