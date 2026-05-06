@@ -158,6 +158,7 @@ export default function Page() {
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState("");
+  const [transcriptionSupported, setTranscriptionSupported] = useState(true);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderStartRef = useRef<number>(0);
   const recorderTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -204,6 +205,12 @@ export default function Page() {
       } else {
         setNotifPermission("unsupported");
       }
+      const SR =
+        (window as unknown as { SpeechRecognition?: unknown })
+          .SpeechRecognition ||
+        (window as unknown as { webkitSpeechRecognition?: unknown })
+          .webkitSpeechRecognition;
+      setTranscriptionSupported(Boolean(SR));
     }
 
     if (typeof window !== "undefined") {
@@ -1496,6 +1503,7 @@ export default function Page() {
         recordSeconds={recordSeconds}
         audioLevel={audioLevel}
         liveTranscript={liveTranscript}
+        transcriptionSupported={transcriptionSupported}
         onStartRecord={() => void startRecording()}
         onStopRecord={stopRecording}
         onCancelRecord={cancelRecording}
@@ -2640,7 +2648,7 @@ function VoicePlayer({
         {playing ? (
           <Pause className="w-4 h-4" />
         ) : (
-          <Play className="w-4 h-4 -scale-x-100" />
+          <Play className="w-4 h-4" />
         )}
       </button>
       <div className="flex-1 flex items-center gap-[2px] h-7 px-1">
@@ -3038,6 +3046,7 @@ function Composer({
   onCancelRecord,
   audioLevel,
   liveTranscript,
+  transcriptionSupported,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -3057,6 +3066,7 @@ function Composer({
   recordSeconds: number;
   audioLevel: number;
   liveTranscript: string;
+  transcriptionSupported: boolean;
   onStartRecord: () => void;
   onStopRecord: () => void;
   onCancelRecord: () => void;
@@ -3142,11 +3152,17 @@ function Composer({
             </button>
           </div>
         )}
-        {recording && liveTranscript && (
+        {recording && (
           <div className="mb-2 px-3 py-2 rounded-xl bg-emerald-900/40 border border-emerald-600/30">
-            <div className="text-[11px] text-emerald-300/90 mb-0.5">תמליל</div>
-            <div className="text-sm text-emerald-50 whitespace-pre-wrap">
-              {liveTranscript}
+            <div className="text-[11px] text-emerald-300/90 mb-0.5 flex items-center gap-1">
+              <Mic className="w-3 h-3" />
+              {transcriptionSupported
+                ? "תמליל"
+                : "תמלול לא נתמך בדפדפן הזה"}
+            </div>
+            <div className="text-sm text-emerald-50 whitespace-pre-wrap min-h-[20px]">
+              {liveTranscript ||
+                (transcriptionSupported ? "מאזין..." : "—")}
             </div>
           </div>
         )}
