@@ -3,14 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Send,
-  Leaf,
   Sparkles,
   ImageIcon,
   X,
   Edit3,
   Users,
+  Bell,
+  BellOff,
+  Satellite,
 } from "lucide-react";
-import { randomNickname } from "@/lib/nicknames";
+import { USERS, getUserById, findMentions, type User } from "@/lib/users";
 
 type Mood =
   | "chill"
@@ -39,8 +41,6 @@ type RoomMsg = {
   image?: ImageState;
 };
 
-type Author = { id: string; name: string };
-
 const MOOD_LABEL: Record<Mood, string> = {
   chill: "רגוע",
   deep: "פילוסופי",
@@ -50,19 +50,17 @@ const MOOD_LABEL: Record<Mood, string> = {
   "eran-disses": "מדבר על ערן",
 };
 
-function getOrCreateAuthor(): Author {
-  if (typeof window === "undefined") return { id: "anon", name: "אנונימי" };
-  let id = localStorage.getItem("mastulon:authorId");
-  let name = localStorage.getItem("mastulon:authorName");
-  if (!id) {
-    id = "u_" + Math.random().toString(36).slice(2, 10);
-    localStorage.setItem("mastulon:authorId", id);
-  }
-  if (!name) {
-    name = randomNickname();
-    localStorage.setItem("mastulon:authorName", name);
-  }
-  return { id, name };
+function readSelfId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("halviinim:userId");
+}
+
+function writeSelfId(id: string) {
+  localStorage.setItem("halviinim:userId", id);
+}
+
+function clearSelfId() {
+  localStorage.removeItem("halviinim:userId");
 }
 
 export default function Page() {
@@ -74,14 +72,27 @@ export default function Page() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [imagineOpen, setImagineOpen] = useState(false);
-  const [author, setAuthor] = useState<Author>({ id: "anon", name: "אנונימי" });
+  const [self, setSelf] = useState<User | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [notifPermission, setNotifPermission] =
+    useState<NotificationPermission | "unsupported">("default");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const lastMsgCountRef = useRef(0);
+  const lastSeenIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setAuthor(getOrCreateAuthor());
+    const id = readSelfId();
+    if (id) {
+      const u = getUserById(id);
+      if (u) setSelf(u);
+    }
+    if (typeof window !== "undefined") {
+      if ("Notification" in window) {
+        setNotifPermission(Notification.permission);
+      } else {
+        setNotifPermission("unsupported");
+      }
+    }
     setHydrated(true);
   }, []);
 
@@ -110,6 +121,32 @@ export default function Page() {
     };
   }, []);
 
+  // Notification on @mention of self
+  useEffect(() => {
+    if (!self || messages.length === 0) return;
+    const lastSeen = lastSeenIdRef.current;
+    let startIdx = 0;
+    if (lastSeen) {
+      const idx = messages.findIndex((m) => m.id === lastSeen);
+      startIdx = idx >= 0 ? idx + 1 : 0;
+    }
+    const newOnes = messages.slice(startIdx);
+    lastSeenIdRef.current = messages[messages.length - 1]?.id ?? null;
+
+    if (lastSeen === null) return; // first load — don't notify on history
+
+    for (const m of newOnes) {
+      if (!m.text) continue;
+      if (m.author?.id === self.id) continue;
+      const mentioned = findMentions(m.text);
+      if (mentioned.some((u) => u.id === self.id)) {
+        showMentionNotification(m, self);
+      }
+    }
+  }, [messages, self]);
+
+  // Scroll to bottom on new messages
+  const lastMsgCountRef = useRef(0);
   useEffect(() => {
     if (messages.length > lastMsgCountRef.current) {
       scrollRef.current?.scrollTo({
@@ -121,6 +158,7 @@ export default function Page() {
   }, [messages.length]);
 
   async function send(text: string) {
+    if (!self) return;
     const trimmed = text.trim();
     if (!trimmed || sending) return;
     setInput("");
@@ -131,14 +169,14 @@ export default function Page() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           text: trimmed,
-          authorId: author.id,
-          authorName: author.name,
+          authorId: self.id,
+          authorName: self.display,
         }),
       });
       const data = (await res.json()) as { messages?: RoomMsg[] };
       if (Array.isArray(data.messages)) setMessages(data.messages);
     } catch {
-      // silent — next poll will resync
+      // silent — next poll resyncs
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -146,6 +184,7 @@ export default function Page() {
   }
 
   async function imagine(prompt: string, refFile: File | null) {
+    if (!self) return;
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
@@ -163,7 +202,7 @@ export default function Page() {
           if (upData.imageId) refImageId = upData.imageId;
         }
       } catch {
-        // continue without ref image
+        // continue
       }
     }
 
@@ -177,18 +216,15 @@ export default function Page() {
         body: JSON.stringify({
           prompt: trimmed,
           refImageId,
-          authorId: author.id,
-          authorName: author.name,
+          authorId: self.id,
+          authorName: self.display,
         }),
       });
       const createData = (await create.json()) as {
         msgId?: string;
         generationId?: string;
         error?: string;
-        status?: number;
         body?: unknown;
-        used?: number;
-        limit?: number;
       };
       if (!create.ok) {
         creationError = `${create.status}/${createData.error ?? "unknown"}${
@@ -206,20 +242,19 @@ export default function Page() {
     }
 
     if (creationError) {
-      const friendly =
-        creationError.startsWith("429/daily_cap_reached") ||
-        creationError.includes("daily_cap")
-          ? "הגענו לתקרה היומית של ציורים. ננסה מחר."
-          : `אחי הראש שלי לא צייר.\n[debug: ${creationError}]`;
-
-      const localMsg: RoomMsg = {
-        id: "local-" + Math.random().toString(36).slice(2, 8),
-        ts: Date.now(),
-        role: "bot",
-        text: friendly,
-        mood: "forgetful",
-      };
-      setMessages((prev) => [...prev, localMsg]);
+      const friendly = creationError.includes("daily_cap")
+        ? "הגענו לתקרה היומית של ציורים. ננסה מחר."
+        : `אחי הראש שלי לא צייר.\n[debug: ${creationError}]`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: "local-" + Math.random().toString(36).slice(2, 8),
+          ts: Date.now(),
+          role: "bot",
+          text: friendly,
+          mood: "forgetful",
+        },
+      ]);
       return;
     }
 
@@ -268,13 +303,32 @@ export default function Page() {
     }
   }
 
-  function changeName() {
-    const next = window.prompt("שם חדש (יוצג לכולם):", author.name);
-    if (next && next.trim()) {
-      const trimmed = next.trim().slice(0, 30);
-      localStorage.setItem("mastulon:authorName", trimmed);
-      setAuthor({ ...author, name: trimmed });
-    }
+  function pickIdentity(u: User) {
+    writeSelfId(u.id);
+    setSelf(u);
+    requestNotificationPermission().then(setNotifPermission);
+  }
+
+  function switchIdentity() {
+    clearSelfId();
+    setSelf(null);
+  }
+
+  async function enableNotifications() {
+    const result = await requestNotificationPermission();
+    setNotifPermission(result);
+  }
+
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen bg-smoke-950 grid place-items-center text-smoke-300">
+        טוען...
+      </div>
+    );
+  }
+
+  if (!self) {
+    return <IdentityPicker onPick={pickIdentity} />;
   }
 
   const imagining = messages.some((m) => m.image?.status === "pending");
@@ -285,32 +339,49 @@ export default function Page() {
 
       <header className="relative z-10 px-4 sm:px-8 py-4 flex items-center gap-3 border-b border-smoke-700/40 bg-smoke-950/40 backdrop-blur">
         <div className="w-9 h-9 rounded-full glow-ring flex items-center justify-center bg-smoke-800/70 shrink-0">
-          <Leaf className="w-5 h-5 text-smoke-200" />
+          <Satellite className="w-5 h-5 text-smoke-200" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-smoke-100 font-bold text-lg leading-tight">
-              מסטולון
+              הלווינים
             </h1>
             <span className="text-smoke-300 text-[11px] px-2 py-0.5 rounded-full bg-smoke-800/60 border border-smoke-700/60 flex items-center gap-1">
               <Users className="w-3 h-3" />
               חדר ציבורי
             </span>
             <span className="text-smoke-400 text-[11px]">
-              ציורים היום: {daily.used}/{daily.limit}
+              ציורים: {daily.used}/{daily.limit}
             </span>
           </div>
-          {hydrated && (
-            <button
-              type="button"
-              onClick={changeName}
-              className="text-smoke-300/80 text-xs flex items-center gap-1 hover:text-smoke-100 transition truncate mt-0.5"
-            >
-              <span className="truncate">אתה: {author.name}</span>
-              <Edit3 className="w-3 h-3 shrink-0" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={switchIdentity}
+            className="text-smoke-300/80 text-xs flex items-center gap-1 hover:text-smoke-100 transition truncate mt-0.5"
+          >
+            <span className="truncate">אתה: {self.display}</span>
+            <Edit3 className="w-3 h-3 shrink-0" />
+          </button>
         </div>
+        {notifPermission !== "granted" && notifPermission !== "unsupported" && (
+          <button
+            type="button"
+            onClick={enableNotifications}
+            className="shrink-0 p-2 rounded-full bg-smoke-800/60 border border-smoke-700/60 text-smoke-200 hover:bg-smoke-700/70 transition"
+            title="הפעל התראות"
+            aria-label="הפעל התראות"
+          >
+            <BellOff className="w-4 h-4" />
+          </button>
+        )}
+        {notifPermission === "granted" && (
+          <div
+            className="shrink-0 p-2 rounded-full bg-emerald-900/60 border border-emerald-600/40 text-emerald-200"
+            title="התראות פעילות"
+          >
+            <Bell className="w-4 h-4" />
+          </div>
+        )}
       </header>
 
       {imagining && (
@@ -332,12 +403,13 @@ export default function Page() {
         >
           {messages.length === 0 ? (
             <div className="text-center text-smoke-300/70 text-sm py-12 px-6">
-              עדיין שקט פה. תתחיל בלכתוב משהו, או תלחץ על ✨ כדי לצייר. כל מי
-              שנכנס לקישור רואה את הכל.
+              עדיין שקט פה. תכתוב משהו, או לחץ על ✨ כדי לצייר.
+              <br />
+              תייג עם @ + שם כדי להתריע למישהו.
             </div>
           ) : (
             messages.map((m) => (
-              <Bubble key={m.id} msg={m} myAuthorId={author.id} />
+              <Bubble key={m.id} msg={m} myUserId={self.id} />
             ))
           )}
         </div>
@@ -366,6 +438,42 @@ export default function Page() {
   );
 }
 
+async function requestNotificationPermission(): Promise<
+  NotificationPermission | "unsupported"
+> {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return "unsupported";
+  }
+  if (Notification.permission === "granted") return "granted";
+  if (Notification.permission === "denied") return "denied";
+  try {
+    const result = await Notification.requestPermission();
+    return result;
+  } catch {
+    return Notification.permission;
+  }
+}
+
+function showMentionNotification(msg: RoomMsg, self: User) {
+  if (typeof window === "undefined") return;
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  const author = msg.author?.name ?? "מישהו";
+  const title = `${author} תייג אותך`;
+  const body = (msg.text ?? "").slice(0, 140);
+  try {
+    new Notification(title, {
+      body,
+      icon: "/icon",
+      tag: `mention-${self.id}-${msg.id}`,
+      lang: "he",
+      dir: "rtl",
+    });
+  } catch {
+    // some browsers throw if not in a user gesture
+  }
+}
+
 async function pollGeneration(id: string): Promise<string> {
   const maxAttempts = 60;
   for (let i = 0; i < maxAttempts; i++) {
@@ -383,14 +491,38 @@ function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
-function Bubble({
-  msg,
-  myAuthorId,
-}: {
-  msg: RoomMsg;
-  myAuthorId: string;
-}) {
-  const isMe = msg.author?.id === myAuthorId;
+function IdentityPicker({ onPick }: { onPick: (u: User) => void }) {
+  return (
+    <div className="min-h-screen bg-smoke-950 grid place-items-center px-4 py-8 relative overflow-hidden">
+      <SmokeBackdrop />
+      <div className="relative z-10 w-full max-w-md bg-smoke-900/90 border border-smoke-700/60 rounded-2xl p-6 shadow-2xl glow-ring">
+        <div className="flex items-center gap-2 mb-5">
+          <Satellite className="w-6 h-6 text-smoke-200" />
+          <h1 className="text-smoke-100 font-bold text-xl">הלווינים</h1>
+        </div>
+        <p className="text-smoke-300 text-sm mb-4">מי אתה?</p>
+        <div className="grid grid-cols-2 gap-2">
+          {USERS.map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => onPick(u)}
+              className="px-4 py-3 rounded-xl bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-100 font-medium transition active:scale-[0.98]"
+            >
+              {u.display}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-smoke-400/70 mt-5 text-center">
+          לחיצה על שם תבקש הרשאת התראות. תוכל להחליף שם מאוחר יותר.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Bubble({ msg, myUserId }: { msg: RoomMsg; myUserId: string }) {
+  const isMe = msg.author?.id === myUserId;
   const isUser = msg.role === "user";
 
   return (
@@ -445,11 +577,51 @@ function Bubble({
         )}
 
         {msg.text && (
-          <div className="whitespace-pre-wrap">{msg.text}</div>
+          <div className="whitespace-pre-wrap">{renderMentions(msg.text)}</div>
         )}
       </div>
     </div>
   );
+}
+
+function renderMentions(text: string): React.ReactNode {
+  const mentioned = findMentions(text);
+  if (mentioned.length === 0) return text;
+  // Highlight all @<handle> tokens
+  const parts: React.ReactNode[] = [];
+  const allHandles = USERS.flatMap((u) => u.handles).sort(
+    (a, b) => b.length - a.length,
+  );
+  let cursor = 0;
+  let i = 0;
+  while ((i = text.indexOf("@", cursor)) !== -1) {
+    let bestHandle = "";
+    for (const h of allHandles) {
+      if (
+        text.startsWith("@" + h, i) &&
+        h.length > bestHandle.length
+      ) {
+        bestHandle = h;
+      }
+    }
+    if (bestHandle) {
+      if (i > cursor) parts.push(text.slice(cursor, i));
+      parts.push(
+        <span
+          key={`m-${i}`}
+          className="text-emerald-300 font-semibold bg-emerald-900/30 rounded px-1"
+        >
+          {"@" + bestHandle}
+        </span>,
+      );
+      cursor = i + 1 + bestHandle.length;
+      i = cursor;
+    } else {
+      i += 1;
+    }
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
 }
 
 function ImaginePanel({
@@ -606,7 +778,7 @@ function Composer({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder="כתוב משהו לחדר..."
+            placeholder="כתוב לחדר... תייג עם @ + שם"
             className="flex-1 input-glow resize-none rounded-2xl bg-smoke-900/70 border border-smoke-700/60 px-4 py-3 text-smoke-100 placeholder:text-smoke-300/50 max-h-40"
             dir="rtl"
           />
@@ -621,7 +793,7 @@ function Composer({
           </button>
         </div>
         <p className="text-center text-[10px] text-smoke-400/70 mt-2">
-          חדר ציבורי · כל מי שיש לו את הקישור רואה הכל
+          הלווינים · החדר של החבר'ה
         </p>
       </div>
     </div>
