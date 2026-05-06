@@ -11,7 +11,7 @@ const EXT_BY_MIME: Record<string, string> = {
 };
 
 export async function POST(req: Request): Promise<Response> {
-  const apiKey = process.env.LEONARDO_API_KEY;
+  const apiKey = process.env.LEONARDO_API_KEY?.trim();
   if (!apiKey) {
     return Response.json({ error: "missing_api_key" }, { status: 500 });
   }

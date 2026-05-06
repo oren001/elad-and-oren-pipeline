@@ -6,7 +6,7 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const apiKey = process.env.LEONARDO_API_KEY;
+  const apiKey = process.env.LEONARDO_API_KEY?.trim();
   if (!apiKey) {
     return Response.json({ error: "missing_api_key" }, { status: 500 });
   }

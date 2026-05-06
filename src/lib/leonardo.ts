@@ -14,7 +14,7 @@ export async function startGeneration(opts: {
   width?: number;
   height?: number;
 }): Promise<StartGenerationResult> {
-  const apiKey = process.env.LEONARDO_API_KEY;
+  const apiKey = process.env.LEONARDO_API_KEY?.trim();
   if (!apiKey) {
     return { ok: false, error: "missing_api_key", status: 500 };
   }
