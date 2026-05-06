@@ -1227,7 +1227,7 @@ function Bubble({
       <div
         className={[
           "relative max-w-[82%] sm:max-w-[70%] px-4 py-3 rounded-2xl shadow-lg leading-relaxed text-[15px] transition-shadow",
-          isMe ? "bubble-me rounded-bl-sm" : "bubble-bot rounded-br-sm",
+          isMe ? "bubble-me rounded-br-sm" : "bubble-bot rounded-bl-sm",
           highlight ? "ring-2 ring-emerald-400 shadow-emerald-500/30" : "",
         ].join(" ")}
       >
@@ -1788,7 +1788,8 @@ function Composer({
           <button
             type="button"
             onClick={onImagine}
-            className="h-12 w-12 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95"
+            disabled={disabled}
+            className="h-11 w-11 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
             aria-label="תצייר"
             title="תצייר לחדר"
           >
@@ -1797,8 +1798,8 @@ function Composer({
           <button
             type="button"
             onClick={() => photoInputRef.current?.click()}
-            disabled={uploading}
-            className="h-12 w-12 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
+            disabled={uploading || disabled}
+            className="h-11 w-11 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
             aria-label="צרף תמונה"
             title="צרף תמונה"
           >
@@ -1818,16 +1819,6 @@ function Composer({
               if (f) onPhotoPicked(f);
             }}
           />
-          <button
-            type="button"
-            onClick={onStartRecord}
-            disabled={recording || editing}
-            className="h-12 w-12 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
-            aria-label="הקלט הודעת קול"
-            title="הקלט הודעת קול"
-          >
-            <Mic className="w-5 h-5" />
-          </button>
           <textarea
             ref={inputRef}
             value={input}
@@ -1856,19 +1847,33 @@ function Composer({
             }
             onBlur={() => setTimeout(() => setAnchor(null), 150)}
             rows={1}
-            placeholder="כתוב לחדר... תייג עם @ + שם"
+            placeholder={editing ? "ערוך הודעה..." : "כתוב לחדר..."}
             className="flex-1 input-glow resize-none rounded-2xl bg-smoke-900/70 border border-smoke-700/60 px-4 py-3 text-smoke-100 placeholder:text-smoke-300/50 max-h-40"
             dir="rtl"
           />
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={disabled || !input.trim()}
-            className="h-12 w-12 rounded-full bg-gradient-to-br from-smoke-400 to-smoke-600 text-white grid place-items-center disabled:opacity-40 disabled:cursor-not-allowed glow-ring transition active:scale-95"
-            aria-label="שלח"
-          >
-            <Send className="w-5 h-5 -scale-x-100" />
-          </button>
+          {input.trim() ? (
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={disabled}
+              className="h-12 px-4 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-bold grid grid-flow-col items-center gap-1.5 shadow-lg shadow-emerald-900/40 disabled:opacity-40 disabled:cursor-not-allowed transition active:scale-95"
+              aria-label={editing ? "שמור" : "שלח"}
+            >
+              <span className="text-sm">{editing ? "שמור" : "שלח"}</span>
+              <Send className="w-4 h-4 -scale-x-100" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onStartRecord}
+              disabled={recording || editing || disabled}
+              className="h-12 w-12 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
+              aria-label="הקלט הודעת קול"
+              title="הקלט הודעת קול"
+            >
+              <Mic className="w-5 h-5" />
+            </button>
+          )}
         </div>
         <p className="text-center text-[10px] text-smoke-400/70 mt-2">
           הלווינים · החדר של החבר'ה
