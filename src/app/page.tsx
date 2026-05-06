@@ -23,8 +23,20 @@ import {
   Pencil,
   Play,
   Pause,
+  Palette,
+  Search,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { USERS, getUserById, findMentions, type User } from "@/lib/users";
+import {
+  THEMES,
+  applyTheme,
+  readStoredTheme,
+  writeStoredTheme,
+  type Theme,
+} from "@/lib/themes";
 
 type Mood =
   | "chill"
@@ -118,6 +130,14 @@ export default function Page() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const profileFileRef = useRef<HTMLInputElement | null>(null);
   const [profileUploading, setProfileUploading] = useState(false);
+  const [themeId, setThemeId] = useState<string | null>(null);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [lightbox, setLightbox] = useState<{
+    images: { url: string; prompt?: string; ts: number; author?: string }[];
+    index: number;
+  } | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -180,6 +200,11 @@ export default function Page() {
       }
     }
 
+    const storedTheme = readStoredTheme();
+    if (storedTheme) {
+      setThemeId(storedTheme);
+      applyTheme(storedTheme);
+    }
     setHydrated(true);
   }, []);
 
@@ -618,6 +643,29 @@ export default function Page() {
     }
   }
 
+  function openLightbox(msgId: string) {
+    const imagesAll = messages
+      .filter((m) => m.image?.status === "ready" && m.image.url)
+      .map((m) => ({
+        id: m.id,
+        url: m.image!.url!,
+        prompt: m.image!.prompt,
+        ts: m.ts,
+        author: m.author?.name,
+      }));
+    const idx = imagesAll.findIndex((i) => i.id === msgId);
+    if (idx < 0) return;
+    setLightbox({
+      images: imagesAll.map(({ url, prompt, ts, author }) => ({
+        url,
+        prompt,
+        ts,
+        author,
+      })),
+      index: idx,
+    });
+  }
+
   function startEdit(msg: RoomMsg) {
     if (!msg.text) return;
     setEditingId(msg.id);
@@ -887,6 +935,20 @@ export default function Page() {
     return <IdentityPicker onPick={pickIdentity} />;
   }
 
+  if (!themeId) {
+    return (
+      <ThemePicker
+        onPick={(id) => {
+          writeStoredTheme(id);
+          applyTheme(id);
+          setThemeId(id);
+          setThemePickerOpen(false);
+        }}
+        showSkip
+      />
+    );
+  }
+
   const imagining = messages.some((m) => m.image?.status === "pending");
 
   return (
@@ -943,6 +1005,24 @@ export default function Page() {
             </button>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setSearchOpen(true)}
+          className="shrink-0 p-2 rounded-full bg-smoke-800/60 border border-smoke-700/60 text-smoke-200 hover:bg-smoke-700/70 transition"
+          title="חיפוש"
+          aria-label="חיפוש"
+        >
+          <Search className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setThemePickerOpen(true)}
+          className="shrink-0 p-2 rounded-full bg-smoke-800/60 border border-smoke-700/60 text-smoke-200 hover:bg-smoke-700/70 transition"
+          title="ערכת צבעים"
+          aria-label="ערכת צבעים"
+        >
+          <Palette className="w-4 h-4" />
+        </button>
         {notifPermission !== "granted" && notifPermission !== "unsupported" && (
           <button
             type="button"
@@ -1041,6 +1121,7 @@ export default function Page() {
                         cur === m.id ? null : m.id,
                       )
                     }
+                    onOpenImage={() => openLightbox(m.id)}
                     onJumpTo={(id) => {
                       const el = document.querySelector(
                         `[data-msg-id="${cssEscape(id)}"]`,
@@ -1084,6 +1165,58 @@ export default function Page() {
         >
           <span>↓ {unreadCount > 0 ? `${unreadCount} חדש` : "לסוף"}</span>
         </button>
+      )}
+
+      {themePickerOpen && (
+        <ThemePicker
+          currentId={themeId}
+          onPick={(id) => {
+            writeStoredTheme(id);
+            applyTheme(id);
+            setThemeId(id);
+            setThemePickerOpen(false);
+          }}
+          onClose={() => setThemePickerOpen(false)}
+        />
+      )}
+
+      {searchOpen && (
+        <SearchPanel
+          query={searchQuery}
+          setQuery={setSearchQuery}
+          messages={messages}
+          onClose={() => {
+            setSearchOpen(false);
+            setSearchQuery("");
+          }}
+          onJump={(id) => {
+            setSearchOpen(false);
+            setSearchQuery("");
+            setTimeout(() => {
+              const el = document.querySelector(
+                `[data-msg-id="${cssEscape(id)}"]`,
+              );
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                setHighlightId(id);
+                setTimeout(() => setHighlightId(null), 2500);
+              }
+            }, 50);
+          }}
+        />
+      )}
+
+      {lightbox && (
+        <Lightbox
+          images={lightbox.images}
+          index={lightbox.index}
+          onClose={() => setLightbox(null)}
+          onIndex={(i) =>
+            setLightbox(
+              lightbox ? { ...lightbox, index: i } : null,
+            )
+          }
+        />
       )}
 
       {profileModalOpen && self && (
@@ -1458,6 +1591,285 @@ function IosInstallGuide({ onClose }: { onClose: () => void }) {
   );
 }
 
+function ThemePicker({
+  currentId,
+  onPick,
+  onClose,
+  showSkip,
+}: {
+  currentId?: string | null;
+  onPick: (id: string) => void;
+  onClose?: () => void;
+  showSkip?: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 bg-smoke-950/85 backdrop-blur-md grid place-items-center px-4 py-8 overflow-y-auto">
+      <div className="w-full max-w-md bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-5 shadow-2xl glow-ring">
+        <div className="flex items-center gap-2 mb-1">
+          <Palette className="w-5 h-5 text-emerald-300" />
+          <h2 className="text-smoke-100 font-bold text-lg flex-1">
+            בחר ערכת צבעים
+          </h2>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-full hover:bg-smoke-800/60 text-smoke-300"
+              aria-label="סגור"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+        <p className="text-smoke-300 text-xs mb-4">
+          איזה ויב אתה רוצה לחדר?
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          {THEMES.map((t) => (
+            <ThemeCard
+              key={t.id}
+              theme={t}
+              selected={currentId === t.id}
+              onPick={() => onPick(t.id)}
+            />
+          ))}
+        </div>
+        {showSkip && (
+          <button
+            type="button"
+            onClick={() => onPick(THEMES[0]!.id)}
+            className="mt-4 w-full text-xs text-smoke-300 hover:text-smoke-100"
+          >
+            דלג, השאר ברירת מחדל
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ThemeCard({
+  theme,
+  selected,
+  onPick,
+}: {
+  theme: Theme;
+  selected: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className={[
+        "rounded-xl overflow-hidden border transition active:scale-[0.98]",
+        selected
+          ? "border-emerald-400 ring-2 ring-emerald-400/60"
+          : "border-smoke-700/60 hover:border-smoke-500/80",
+      ].join(" ")}
+    >
+      <div
+        className="h-20 relative"
+        style={{
+          background: `linear-gradient(135deg, ${theme.swatch.from}, ${theme.swatch.to})`,
+        }}
+      >
+        <div
+          className="absolute bottom-2 right-2 w-6 h-6 rounded-full"
+          style={{ background: theme.swatch.accent }}
+        />
+        <div
+          className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold text-white"
+          style={{ background: theme.swatch.accent }}
+        >
+          הדגמה
+        </div>
+      </div>
+      <div className="px-2.5 py-2 bg-smoke-900/70 text-right">
+        <div className="text-smoke-100 text-sm font-semibold">{theme.name}</div>
+        <div className="text-smoke-400 text-[11px] truncate">{theme.vibe}</div>
+      </div>
+    </button>
+  );
+}
+
+function SearchPanel({
+  query,
+  setQuery,
+  messages,
+  onClose,
+  onJump,
+}: {
+  query: string;
+  setQuery: (v: string) => void;
+  messages: RoomMsg[];
+  onClose: () => void;
+  onJump: (id: string) => void;
+}) {
+  const trimmed = query.trim().toLowerCase();
+  const results = trimmed
+    ? messages.filter((m) => {
+        const hay = [
+          m.text,
+          m.image?.prompt,
+          m.author?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(trimmed);
+      })
+    : [];
+
+  return (
+    <div className="fixed inset-0 z-40 bg-smoke-950/80 backdrop-blur-md flex flex-col">
+      <div className="px-4 py-3 flex items-center gap-2 border-b border-smoke-700/40">
+        <Search className="w-5 h-5 text-smoke-300" />
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="חפש בחדר..."
+          className="flex-1 bg-transparent border-0 text-smoke-100 placeholder:text-smoke-300/50 focus:outline-none"
+          dir="rtl"
+        />
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1.5 rounded-full hover:bg-smoke-800/60 text-smoke-300"
+          aria-label="סגור"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
+        {trimmed === "" ? (
+          <div className="text-center text-smoke-400/70 text-sm py-12">
+            הקלד מילה כדי לחפש
+          </div>
+        ) : results.length === 0 ? (
+          <div className="text-center text-smoke-400/70 text-sm py-12">
+            לא נמצא כלום עם &quot;{trimmed}&quot;
+          </div>
+        ) : (
+          results
+            .slice()
+            .reverse()
+            .slice(0, 100)
+            .map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => onJump(m.id)}
+                className="w-full text-right p-3 rounded-xl bg-smoke-800/40 hover:bg-smoke-800/70 border border-smoke-700/60 transition"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-emerald-300 text-xs font-semibold">
+                    {m.author?.name ?? (m.role === "bot" ? "המסטולון" : "")}
+                  </span>
+                  <span className="text-smoke-400 text-[10px]">
+                    {new Date(m.ts).toLocaleString("he-IL", {
+                      day: "numeric",
+                      month: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                <div className="text-smoke-100 text-sm whitespace-pre-wrap line-clamp-3">
+                  {m.text || (m.image?.prompt ? `🎨 ${m.image.prompt}` : "תמונה")}
+                </div>
+              </button>
+            ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Lightbox({
+  images,
+  index,
+  onClose,
+  onIndex,
+}: {
+  images: { url: string; prompt?: string; ts: number; author?: string }[];
+  index: number;
+  onClose: () => void;
+  onIndex: (i: number) => void;
+}) {
+  const current = images[index];
+  if (!current) return null;
+  const prev = () => onIndex((index - 1 + images.length) % images.length);
+  const next = () => onIndex((index + 1) % images.length);
+  return (
+    <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
+      <div className="px-4 py-3 flex items-center gap-2 text-white">
+        <span className="text-sm flex-1">
+          {current.author ?? "תמונה"}
+          {current.prompt && (
+            <span className="text-white/60 text-xs ms-2">
+              — &quot;{current.prompt.slice(0, 80)}&quot;
+            </span>
+          )}
+        </span>
+        <span className="text-white/60 text-xs">
+          {index + 1}/{images.length}
+        </span>
+        <a
+          href={current.url}
+          target="_blank"
+          rel="noreferrer"
+          className="p-1.5 rounded-full hover:bg-white/10"
+          title="פתח במקור"
+        >
+          <Download className="w-5 h-5" />
+        </a>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1.5 rounded-full hover:bg-white/10"
+          aria-label="סגור"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <div
+        className="flex-1 grid place-items-center overflow-hidden touch-pan-y"
+        onClick={onClose}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={current.url}
+          alt={current.prompt ?? "תמונה"}
+          className="max-w-full max-h-full object-contain"
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+      {images.length > 1 && (
+        <div className="flex items-center justify-between px-4 py-3 text-white">
+          <button
+            type="button"
+            onClick={prev}
+            className="p-2 rounded-full hover:bg-white/10"
+            aria-label="קודמת"
+          >
+            <ChevronRight className="w-6 h-6" />
+          </button>
+          <button
+            type="button"
+            onClick={next}
+            className="p-2 rounded-full hover:bg-white/10"
+            aria-label="הבאה"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IdentityPicker({ onPick }: { onPick: (u: User) => void }) {
   return (
     <div className="min-h-screen bg-smoke-950 grid place-items-center px-4 py-8 relative overflow-hidden">
@@ -1499,6 +1911,7 @@ function Bubble({
   onDelete,
   pickerOpen,
   onTogglePicker,
+  onOpenImage,
   onJumpTo,
 }: {
   msg: RoomMsg;
@@ -1511,6 +1924,7 @@ function Bubble({
   onDelete: () => void;
   pickerOpen: boolean;
   onTogglePicker: () => void;
+  onOpenImage: () => void;
   onJumpTo: (id: string) => void;
 }) {
   const isMe = msg.author?.id === myUserId;
@@ -1574,11 +1988,10 @@ function Bubble({
         )}
 
         {msg.image?.status === "ready" && msg.image.url && (
-          <a
-            href={msg.image.url}
-            target="_blank"
-            rel="noreferrer"
-            className="block rounded-xl overflow-hidden border border-smoke-700/40 mb-2"
+          <button
+            type="button"
+            onClick={onOpenImage}
+            className="block rounded-xl overflow-hidden border border-smoke-700/40 mb-2 w-full active:opacity-90"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -1587,7 +2000,7 @@ function Bubble({
               className="w-full h-auto"
               loading="lazy"
             />
-          </a>
+          </button>
         )}
 
         {msg.image?.prompt && msg.image.status === "ready" && (
@@ -1932,6 +2345,142 @@ function ImaginePanel({
   );
 }
 
+function PhotoAttachButton({
+  disabled,
+  uploading,
+  onPicked,
+  inputRef,
+}: {
+  disabled: boolean;
+  uploading: boolean;
+  onPicked: (file: File) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const cameraRef = useRef<HTMLInputElement | null>(null);
+  const multiRef = useRef<HTMLInputElement | null>(null);
+
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+    const arr = Array.from(files).slice(0, 6);
+    arr.forEach((f, i) => setTimeout(() => onPicked(f), i * 250));
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setSheetOpen(true)}
+        disabled={disabled}
+        className="h-11 w-11 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
+        aria-label="צרף תמונה"
+        title="צרף תמונה"
+      >
+        {uploading ? (
+          <span className="dot-typing" />
+        ) : (
+          <Paperclip className="w-5 h-5" />
+        )}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onPicked(f);
+          e.currentTarget.value = "";
+        }}
+      />
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onPicked(f);
+          e.currentTarget.value = "";
+        }}
+      />
+      <input
+        ref={multiRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          e.currentTarget.value = "";
+        }}
+      />
+      {sheetOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-smoke-950/70 backdrop-blur-sm grid place-items-end px-3 pb-3"
+          onClick={() => setSheetOpen(false)}
+        >
+          <div
+            className="w-full max-w-md bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-3 shadow-2xl glow-ring"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setSheetOpen(false);
+                cameraRef.current?.click();
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-smoke-800/70 text-smoke-100 text-right"
+            >
+              <Camera className="w-5 h-5 text-emerald-300" />
+              <div className="flex-1">
+                <div className="font-semibold text-sm">צלם עכשיו</div>
+                <div className="text-xs text-smoke-400">פותח את המצלמה</div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSheetOpen(false);
+                inputRef.current?.click();
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-smoke-800/70 text-smoke-100 text-right"
+            >
+              <ImageIcon className="w-5 h-5 text-emerald-300" />
+              <div className="flex-1">
+                <div className="font-semibold text-sm">תמונה אחת</div>
+                <div className="text-xs text-smoke-400">בחר מהגלריה</div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSheetOpen(false);
+                multiRef.current?.click();
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-smoke-800/70 text-smoke-100 text-right"
+            >
+              <Paperclip className="w-5 h-5 text-emerald-300" />
+              <div className="flex-1">
+                <div className="font-semibold text-sm">כמה תמונות</div>
+                <div className="text-xs text-smoke-400">עד 6 בבת אחת</div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSheetOpen(false)}
+              className="w-full mt-1 px-4 py-2.5 rounded-xl text-smoke-300 hover:text-smoke-100 text-sm"
+            >
+              ביטול
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Composer({
   input,
   setInput,
@@ -2097,29 +2646,11 @@ function Composer({
           </div>
         )}
         <div className="flex items-end gap-2">
-          <button
-            type="button"
-            onClick={() => photoInputRef.current?.click()}
+          <PhotoAttachButton
             disabled={uploading || disabled}
-            className="h-11 w-11 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
-            aria-label="צרף תמונה"
-            title="צרף תמונה"
-          >
-            {uploading ? (
-              <span className="dot-typing" />
-            ) : (
-              <Paperclip className="w-5 h-5" />
-            )}
-          </button>
-          <input
-            ref={photoInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onPhotoPicked(f);
-            }}
+            uploading={uploading}
+            onPicked={onPhotoPicked}
+            inputRef={photoInputRef}
           />
           <textarea
             ref={inputRef}
