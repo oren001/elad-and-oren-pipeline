@@ -2141,55 +2141,56 @@ function Bubble({
         </div>
 
         {!isLocal && !isDeleted && (
-          <div className="mt-1 flex items-center justify-end gap-3 text-[11px] text-smoke-300/60 flex-wrap">
+          <div className="mt-1 flex items-center justify-end gap-1 opacity-50 hover:opacity-100 transition">
             <button
               type="button"
               onClick={onTogglePicker}
-              className="flex items-center gap-1 hover:text-smoke-100 transition"
+              className="p-1 rounded-md hover:bg-black/10"
               title="הוסף אימוג'י"
+              aria-label="הוסף אימוג'י"
             >
               <SmilePlus className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={onReply}
-              className="flex items-center gap-1 hover:text-smoke-100 transition"
+              className="p-1 rounded-md hover:bg-black/10"
               title="השב"
+              aria-label="השב"
             >
               <Reply className="w-3.5 h-3.5" />
-              השב
+            </button>
+            <button
+              type="button"
+              onClick={() => shareDeepLink(msg)}
+              className="p-1 rounded-md hover:bg-black/10"
+              title="שתף"
+              aria-label="שתף"
+            >
+              <Share2 className="w-3.5 h-3.5" />
             </button>
             {isMe && msg.text && !msg.voice && (
               <button
                 type="button"
                 onClick={onEdit}
-                className="flex items-center gap-1 hover:text-smoke-100 transition"
+                className="p-1 rounded-md hover:bg-black/10"
                 title="ערוך"
+                aria-label="ערוך"
               >
-                <Pencil className="w-3 h-3" />
-                ערוך
+                <Pencil className="w-3.5 h-3.5" />
               </button>
             )}
             {isMe && (
               <button
                 type="button"
                 onClick={onDelete}
-                className="flex items-center gap-1 hover:text-red-300 transition"
+                className="p-1 rounded-md hover:bg-red-500/15"
                 title="מחק"
+                aria-label="מחק"
               >
-                <Trash2 className="w-3 h-3" />
-                מחק
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => shareDeepLink(msg)}
-              className="flex items-center gap-1 hover:text-smoke-100 transition"
-              title="שתף לוואטסאפ"
-            >
-              <Share2 className="w-3 h-3" />
-              שתף
-            </button>
           </div>
         )}
 
@@ -2290,18 +2291,26 @@ function VoicePlayer({
           <Play className="w-4 h-4 -scale-x-100" />
         )}
       </button>
-      <div
-        className="flex-1 relative h-1 rounded-full"
-        style={{ background: "rgba(0,0,0,0.18)" }}
-      >
-        <div
-          className="absolute inset-y-0 right-0 rounded-full"
-          style={{
-            background: "rgba(0,0,0,0.55)",
-            width: `${Math.min(100, progress * 100)}%`,
-            transition: "width 80ms linear",
-          }}
-        />
+      <div className="flex-1 flex items-center gap-[2px] h-7 px-1">
+        {Array.from({ length: 28 }).map((_, i) => {
+          const pos = i / 27;
+          const isPast = pos <= progress;
+          const seed = (i * 137 + 91) % 100;
+          const h = 22 + (seed % 60);
+          return (
+            <span
+              key={i}
+              className="w-[2px] rounded-full"
+              style={{
+                height: `${h}%`,
+                background: isPast
+                  ? "rgba(0,0,0,0.7)"
+                  : "rgba(0,0,0,0.22)",
+                transition: "background 90ms ease-out",
+              }}
+            />
+          );
+        })}
       </div>
       <span className="text-[11px] tabular-nums opacity-70 shrink-0">
         {formatVoiceDuration(remaining)}
