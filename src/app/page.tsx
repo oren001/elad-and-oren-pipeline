@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   Send,
   Sparkles,
@@ -981,42 +981,54 @@ export default function Page() {
               תייג עם @ + שם כדי להתריע למישהו.
             </div>
           ) : (
-            messages.map((m) =>
-              m.role === "system" ? (
-                <SystemBubble key={m.id} msg={m} />
-              ) : (
-                <Bubble
-                  key={m.id}
-                  msg={m}
-                  myUserId={self.id}
-                  profiles={profiles}
-                  highlight={highlightId === m.id}
-                  onReact={(emoji) => react(m.id, emoji)}
-                  onReply={() => startReply(m)}
-                  onEdit={() => startEdit(m)}
-                  onDelete={() => deleteMsg(m)}
-                  pickerOpen={reactionPickerFor === m.id}
-                  onTogglePicker={() =>
-                    setReactionPickerFor((cur) =>
-                      cur === m.id ? null : m.id,
-                    )
-                  }
-                  onJumpTo={(id) => {
-                    const el = document.querySelector(
-                      `[data-msg-id="${cssEscape(id)}"]`,
-                    );
-                    if (el) {
-                      el.scrollIntoView({
-                        behavior: "smooth",
-                        block: "center",
-                      });
-                      setHighlightId(id);
-                      setTimeout(() => setHighlightId(null), 2500);
+            messages.map((m, i) => {
+              const prev = i > 0 ? messages[i - 1] : null;
+              const showSeparator = !prev || !isSameDay(prev.ts, m.ts);
+              const node =
+                m.role === "system" ? (
+                  <SystemBubble key={m.id} msg={m} />
+                ) : (
+                  <Bubble
+                    key={m.id}
+                    msg={m}
+                    myUserId={self.id}
+                    profiles={profiles}
+                    highlight={highlightId === m.id}
+                    onReact={(emoji) => react(m.id, emoji)}
+                    onReply={() => startReply(m)}
+                    onEdit={() => startEdit(m)}
+                    onDelete={() => deleteMsg(m)}
+                    pickerOpen={reactionPickerFor === m.id}
+                    onTogglePicker={() =>
+                      setReactionPickerFor((cur) =>
+                        cur === m.id ? null : m.id,
+                      )
                     }
-                  }}
-                />
-              ),
-            )
+                    onJumpTo={(id) => {
+                      const el = document.querySelector(
+                        `[data-msg-id="${cssEscape(id)}"]`,
+                      );
+                      if (el) {
+                        el.scrollIntoView({
+                          behavior: "smooth",
+                          block: "center",
+                        });
+                        setHighlightId(id);
+                        setTimeout(() => setHighlightId(null), 2500);
+                      }
+                    }}
+                  />
+                );
+              if (showSeparator) {
+                return (
+                  <Fragment key={`sep-${m.id}`}>
+                    <DateSeparator ts={m.ts} />
+                    {node}
+                  </Fragment>
+                );
+              }
+              return node;
+            })
           )}
         </div>
       </main>
@@ -1257,6 +1269,50 @@ function SystemBubble({ msg }: { msg: RoomMsg }) {
       </div>
     </div>
   );
+}
+
+function DateSeparator({ ts }: { ts: number }) {
+  return (
+    <div className="flex justify-center my-2">
+      <div className="text-[11px] px-3 py-0.5 rounded-full bg-smoke-800/70 border border-smoke-700/60 text-smoke-300 tracking-wide">
+        {formatDateLabel(ts)}
+      </div>
+    </div>
+  );
+}
+
+function formatBubbleTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function isSameDay(a: number, b: number): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return (
+    da.getFullYear() === db.getFullYear() &&
+    da.getMonth() === db.getMonth() &&
+    da.getDate() === db.getDate()
+  );
+}
+
+function formatDateLabel(ts: number): string {
+  const now = Date.now();
+  if (isSameDay(ts, now)) return "היום";
+  const yesterday = now - 24 * 60 * 60 * 1000;
+  if (isSameDay(ts, yesterday)) return "אתמול";
+  const d = new Date(ts);
+  const diffDays = Math.floor((now - ts) / (24 * 60 * 60 * 1000));
+  if (diffDays < 7) {
+    return d.toLocaleDateString("he-IL", { weekday: "long" });
+  }
+  return d.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "long",
+    year: diffDays > 365 ? "numeric" : undefined,
+  });
 }
 
 function BuildBadge() {
@@ -1558,8 +1614,12 @@ function Bubble({
           </div>
         )}
 
+        <div className="mt-1 text-[10px] text-smoke-300/50 flex items-center justify-end tabular-nums">
+          {formatBubbleTime(msg.ts)}
+        </div>
+
         {!isLocal && !isDeleted && (
-          <div className="mt-1.5 flex items-center justify-end gap-3 text-[11px] text-smoke-300/60 flex-wrap">
+          <div className="mt-1 flex items-center justify-end gap-3 text-[11px] text-smoke-300/60 flex-wrap">
             <button
               type="button"
               onClick={onTogglePicker}
