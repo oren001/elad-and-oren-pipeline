@@ -818,9 +818,69 @@ function Composer({
   disabled: boolean;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
+  const [anchor, setAnchor] = useState<{
+    start: number;
+    query: string;
+  } | null>(null);
+
+  function recompute(value: string, cursor: number) {
+    const window = value.slice(Math.max(0, cursor - 20), cursor);
+    const lastAt = window.lastIndexOf("@");
+    if (lastAt < 0) {
+      setAnchor(null);
+      return;
+    }
+    const start = cursor - window.length + lastAt;
+    const query = value.slice(start + 1, cursor);
+    if (/[\n,]/.test(query)) {
+      setAnchor(null);
+      return;
+    }
+    setAnchor({ start, query });
+  }
+
+  function pickMention(u: User) {
+    if (!anchor) return;
+    const handle = u.handles[0];
+    const before = input.slice(0, anchor.start);
+    const after = input.slice(anchor.start + 1 + anchor.query.length);
+    const next = before + "@" + handle + " " + after;
+    setInput(next);
+    setAnchor(null);
+    const caret = before.length + 1 + handle.length + 1;
+    setTimeout(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    }, 0);
+  }
+
+  const matches = anchor ? matchUsersForMention(anchor.query) : [];
+  const showDropdown = anchor !== null && matches.length > 0;
+
   return (
     <div className="fixed bottom-0 inset-x-0 z-20 border-t border-smoke-700/40 bg-smoke-950/80 backdrop-blur-md">
-      <div className="max-w-3xl mx-auto px-3 sm:px-6 py-3">
+      <div className="max-w-3xl mx-auto px-3 sm:px-6 py-3 relative">
+        {showDropdown && (
+          <div className="absolute bottom-full inset-x-3 sm:inset-x-6 mb-2 bg-smoke-900/95 border border-smoke-700/60 rounded-xl shadow-2xl overflow-hidden glow-ring max-h-64 overflow-y-auto">
+            {matches.map((u) => (
+              <button
+                key={u.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pickMention(u)}
+                className="w-full text-right px-4 py-2.5 hover:bg-smoke-800/70 text-smoke-100 text-sm flex items-center justify-between gap-3 border-b border-smoke-800/50 last:border-b-0"
+              >
+                <span className="text-smoke-300/70 text-xs">{u.display}</span>
+                <span>
+                  <span className="text-emerald-300 font-semibold">@</span>
+                  {u.handles[0]}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <button
             type="button"
@@ -834,8 +894,30 @@ function Composer({
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
+            onChange={(e) => {
+              setInput(e.target.value);
+              recompute(e.target.value, e.target.selectionStart);
+            }}
+            onKeyDown={(e) => {
+              if (showDropdown && (e.key === "Escape" || e.key === "Tab")) {
+                e.preventDefault();
+                setAnchor(null);
+                return;
+              }
+              if (showDropdown && e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                pickMention(matches[0]);
+                return;
+              }
+              onKeyDown(e);
+            }}
+            onSelect={(e) =>
+              recompute(e.currentTarget.value, e.currentTarget.selectionStart)
+            }
+            onClick={(e) =>
+              recompute(e.currentTarget.value, e.currentTarget.selectionStart)
+            }
+            onBlur={() => setTimeout(() => setAnchor(null), 150)}
             rows={1}
             placeholder="כתוב לחדר... תייג עם @ + שם"
             className="flex-1 input-glow resize-none rounded-2xl bg-smoke-900/70 border border-smoke-700/60 px-4 py-3 text-smoke-100 placeholder:text-smoke-300/50 max-h-40"
@@ -857,6 +939,25 @@ function Composer({
       </div>
     </div>
   );
+}
+
+function matchUsersForMention(query: string): User[] {
+  const q = query.trim();
+  if (!q) return [...USERS];
+  const lower = q.toLowerCase();
+  const seen = new Set<string>();
+  const out: User[] = [];
+  for (const u of USERS) {
+    if (seen.has(u.id)) continue;
+    const hit =
+      u.display.toLowerCase().startsWith(lower) ||
+      u.handles.some((h) => h.toLowerCase().startsWith(lower));
+    if (hit) {
+      seen.add(u.id);
+      out.push(u);
+    }
+  }
+  return out;
 }
 
 function SmokeBackdrop() {
