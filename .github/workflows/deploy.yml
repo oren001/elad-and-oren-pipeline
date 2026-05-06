@@ -39,49 +39,23 @@ jobs:
               --compatibility-flags=nodejs_compat
           fi
 
-      - name: Ensure KV namespace exists & write wrangler.toml
+      - name: List KV namespaces (diagnostic — copy ID from this log)
+        shell: bash
+        continue-on-error: true
+        run: |
+          echo "============================================================"
+          echo "  COPY THE 'id' VALUE FOR title='mastulon-state' FROM BELOW"
+          echo "============================================================"
+          npx wrangler kv namespace list 2>&1 || echo "(list failed)"
+          echo "============================================================"
+
+      - name: Write wrangler.toml from KV_NAMESPACE_ID secret (if set)
         shell: bash
         run: |
           set -e
-
-          echo "::group::list namespaces"
-          set +e
-          LIST_OUT=$(npx wrangler kv namespace list 2>&1)
-          set -e
-          echo "$LIST_OUT"
-          echo "::endgroup::"
-
-          NS_ID=$(printf '%s' "$LIST_OUT" | python3 -c '
-          import json, sys
-          raw = sys.stdin.read().strip()
-          try:
-              data = json.loads(raw)
-          except Exception:
-              data = []
-          if not isinstance(data, list):
-              data = []
-          wanted = ("mastulon-state", "mastulon-chat-mastulon-state")
-          ids = [x.get("id") for x in data if isinstance(x, dict) and x.get("title") in wanted]
-          print(ids[0] if ids else "")
-          ' || true)
-
-          if [ -z "$NS_ID" ]; then
-            echo "::group::create namespace"
-            set +e
-            CREATE_OUT=$(npx wrangler kv namespace create mastulon-state 2>&1)
-            set -e
-            echo "$CREATE_OUT"
-            echo "::endgroup::"
-            NS_ID=$(printf '%s' "$CREATE_OUT" | grep -oE 'id ?= ?"[a-f0-9]{32}"' | head -1 | sed -E 's/.*"([a-f0-9]{32})".*/\1/' || true)
-          fi
-
-          if [ -z "$NS_ID" ]; then
-            echo "::error::Failed to obtain KV namespace ID"
-            exit 1
-          fi
-
-          echo "KV namespace id: $NS_ID"
-          cat > wrangler.toml <<TOML
+          if [ -n "${{ secrets.KV_NAMESPACE_ID }}" ]; then
+            echo "Using KV_NAMESPACE_ID from repo secret"
+            cat > wrangler.toml <<TOML
           name = "mastulon-chat"
           compatibility_date = "2024-11-01"
           compatibility_flags = ["nodejs_compat"]
@@ -89,9 +63,12 @@ jobs:
 
           [[kv_namespaces]]
           binding = "MASTULON_KV"
-          id = "$NS_ID"
+          id = "${{ secrets.KV_NAMESPACE_ID }}"
           TOML
-          cat wrangler.toml
+            cat wrangler.toml
+          else
+            echo "::warning::KV_NAMESPACE_ID secret not set — deploying without KV binding (room/push will not work)"
+          fi
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
