@@ -134,6 +134,7 @@ export default function Page() {
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const lastSeenIdRef = useRef<string | null>(null);
   const scrolledToTargetRef = useRef(false);
+  const pollingPendingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const id = readSelfId();
@@ -326,6 +327,42 @@ export default function Page() {
       }
     }
   }, [messages, self]);
+
+  // Resilience: if any pending image bubble is in the feed, poll Leonardo
+  // for it and finalize. Multiple clients may do this; finalize is idempotent.
+  useEffect(() => {
+    for (const m of messages) {
+      const genId = m.image?.generationId;
+      if (
+        m.image?.status === "pending" &&
+        genId &&
+        !pollingPendingRef.current.has(genId)
+      ) {
+        pollingPendingRef.current.add(genId);
+        const msgId = m.id;
+        void (async () => {
+          try {
+            const url = await pollGeneration(genId);
+            await fetch("/api/room/imagine/finalize", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ msgId, imageUrl: url }),
+            });
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : "unknown";
+            await fetch("/api/room/imagine/finalize", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ msgId, error: detail }),
+            });
+          } finally {
+            pollingPendingRef.current.delete(genId);
+            void refresh();
+          }
+        })();
+      }
+    }
+  }, [messages]);
 
   // Deep-link: scroll to ?msg=<id> after messages load
   useEffect(() => {
