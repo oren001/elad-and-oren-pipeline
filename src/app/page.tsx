@@ -13,6 +13,7 @@ import {
   Satellite,
   Download,
   Share,
+  Share2,
 } from "lucide-react";
 import { USERS, getUserById, findMentions, type User } from "@/lib/users";
 
@@ -88,9 +89,11 @@ export default function Page() {
   const [installed, setInstalled] = useState(false);
   const [installDismissed, setInstallDismissed] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const lastSeenIdRef = useRef<string | null>(null);
+  const scrolledToTargetRef = useRef(false);
 
   useEffect(() => {
     const id = readSelfId();
@@ -204,6 +207,26 @@ export default function Page() {
       }
     }
   }, [messages, self]);
+
+  // Deep-link: scroll to ?msg=<id> after messages load
+  useEffect(() => {
+    if (scrolledToTargetRef.current) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("msg");
+    if (!target) return;
+    if (messages.length === 0) return;
+    const exists = messages.some((m) => m.id === target);
+    if (!exists) return;
+    scrolledToTargetRef.current = true;
+    setHighlightId(target);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-msg-id="${cssEscape(target)}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 250);
+    setTimeout(() => setHighlightId(null), 4000);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [messages]);
 
   // Scroll to bottom on new messages
   const lastMsgCountRef = useRef(0);
@@ -526,7 +549,12 @@ export default function Page() {
             </div>
           ) : (
             messages.map((m) => (
-              <Bubble key={m.id} msg={m} myUserId={self.id} />
+              <Bubble
+                key={m.id}
+                msg={m}
+                myUserId={self.id}
+                highlight={highlightId === m.id}
+              />
             ))
           )}
         </div>
@@ -732,16 +760,29 @@ function IdentityPicker({ onPick }: { onPick: (u: User) => void }) {
   );
 }
 
-function Bubble({ msg, myUserId }: { msg: RoomMsg; myUserId: string }) {
+function Bubble({
+  msg,
+  myUserId,
+  highlight,
+}: {
+  msg: RoomMsg;
+  myUserId: string;
+  highlight: boolean;
+}) {
   const isMe = msg.author?.id === myUserId;
   const isUser = msg.role === "user";
+  const isLocal = msg.id.startsWith("local-");
 
   return (
-    <div className={`flex ${isMe ? "justify-start" : "justify-end"}`}>
+    <div
+      data-msg-id={msg.id}
+      className={`flex ${isMe ? "justify-start" : "justify-end"} scroll-mt-24`}
+    >
       <div
         className={[
-          "max-w-[82%] sm:max-w-[70%] px-4 py-3 rounded-2xl shadow-lg leading-relaxed text-[15px]",
+          "max-w-[82%] sm:max-w-[70%] px-4 py-3 rounded-2xl shadow-lg leading-relaxed text-[15px] transition-shadow",
           isMe ? "bubble-me rounded-bl-sm" : "bubble-bot rounded-br-sm",
+          highlight ? "ring-2 ring-emerald-400 shadow-emerald-500/30" : "",
         ].join(" ")}
       >
         {isUser && msg.author && !isMe && (
@@ -790,9 +831,64 @@ function Bubble({ msg, myUserId }: { msg: RoomMsg; myUserId: string }) {
         {msg.text && (
           <div className="whitespace-pre-wrap">{renderMentions(msg.text)}</div>
         )}
+
+        {!isLocal && (
+          <div className="mt-1.5 flex justify-end">
+            <button
+              type="button"
+              onClick={() => shareDeepLink(msg)}
+              className="text-[11px] text-smoke-300/60 hover:text-smoke-100 flex items-center gap-1 transition"
+              title="שתף לוואטסאפ"
+            >
+              <Share2 className="w-3 h-3" />
+              שתף
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+function shareDeepLink(msg: RoomMsg) {
+  if (typeof window === "undefined") return;
+  const link = `${window.location.origin}/?msg=${encodeURIComponent(msg.id)}`;
+
+  let text: string;
+  if (msg.image?.url && msg.image.status === "ready") {
+    const caption = msg.image.prompt
+      ? `"${msg.image.prompt}" — מהלווינים`
+      : "תמונה מהלווינים";
+    text = `${msg.image.url}\n\n${caption}\n${link}`;
+  } else if (msg.text) {
+    const author = msg.author?.name ?? "מישהו";
+    const snippet = msg.text.length > 140 ? msg.text.slice(0, 140) + "…" : msg.text;
+    text = `${author} בלווינים: "${snippet}"\n${link}`;
+  } else {
+    text = `הצטרף ללווינים\n${link}`;
+  }
+
+  if (typeof navigator.share === "function") {
+    navigator
+      .share({ title: "הלווינים", text, url: link })
+      .catch(() => {
+        openWhatsApp(text);
+      });
+  } else {
+    openWhatsApp(text);
+  }
+}
+
+function openWhatsApp(text: string) {
+  const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(wa, "_blank");
+}
+
+function cssEscape(s: string): string {
+  if (typeof window !== "undefined" && typeof CSS !== "undefined" && CSS.escape) {
+    return CSS.escape(s);
+  }
+  return s.replace(/(["\\\]\[])/g, "\\$1");
 }
 
 function renderMentions(text: string): React.ReactNode {
