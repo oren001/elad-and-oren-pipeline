@@ -282,6 +282,22 @@ export default function Page() {
         </div>
       </header>
 
+      {messages.some(
+        (m) => m.imageStatus === "pending" || m.imageStatus === "awaiting",
+      ) && (
+        <div className="relative z-10 px-4 py-2.5 flex items-center justify-center gap-2 bg-emerald-900/80 backdrop-blur-md border-b border-emerald-600/40 text-emerald-100">
+          <Sparkles className="w-4 h-4 animate-pulse" />
+          <span className="text-sm font-medium">
+            {messages.some((m) => m.imageStatus === "awaiting")
+              ? "ממתין לאישור מאלעד..."
+              : "המסטולון מצייר... רגע אחי 🟢"}
+          </span>
+          <span className="dot-typing" />
+          <span className="dot-typing" />
+          <span className="dot-typing" />
+        </div>
+      )}
+
       <main className="relative z-10 max-w-3xl mx-auto px-3 sm:px-6 pt-4 pb-40">
         <div
           ref={scrollRef}
@@ -533,6 +549,7 @@ function ImaginePanel({
 }) {
   const [prompt, setPrompt] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const previewUrl = file ? URL.createObjectURL(file) : null;
@@ -610,12 +627,27 @@ function ImaginePanel({
 
         <button
           type="button"
-          onClick={() => onSubmit(prompt, file)}
-          disabled={!prompt.trim()}
-          className="mt-4 w-full h-11 rounded-xl bg-gradient-to-br from-smoke-400 to-smoke-600 text-white font-medium disabled:opacity-40 transition active:scale-[0.99] flex items-center justify-center gap-2"
+          onClick={() => {
+            if (submitting || !prompt.trim()) return;
+            setSubmitting(true);
+            onSubmit(prompt, file);
+          }}
+          disabled={submitting || !prompt.trim()}
+          className="mt-4 w-full h-11 rounded-xl bg-gradient-to-br from-smoke-400 to-smoke-600 text-white font-medium disabled:opacity-60 transition active:scale-[0.99] flex items-center justify-center gap-2"
         >
-          <Sparkles className="w-4 h-4" />
-          תצייר
+          {submitting ? (
+            <>
+              <span className="dot-typing" />
+              <span className="dot-typing" />
+              <span className="dot-typing" />
+              <span className="ms-2">שולח לציור...</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              תצייר
+            </>
+          )}
         </button>
 
         <p className="text-[10px] text-smoke-400/70 mt-3 text-center">
