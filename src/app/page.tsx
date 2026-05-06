@@ -14,6 +14,9 @@ import {
   Download,
   Share,
   Share2,
+  Reply,
+  SmilePlus,
+  Paperclip,
 } from "lucide-react";
 import { USERS, getUserById, findMentions, type User } from "@/lib/users";
 
@@ -39,6 +42,8 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+type ReplyTo = { id: string; authorName: string; snippet: string };
+
 type RoomMsg = {
   id: string;
   ts: number;
@@ -47,7 +52,12 @@ type RoomMsg = {
   text?: string;
   mood?: Mood;
   image?: ImageState;
+  reactions?: Record<string, string[]>;
+  replyTo?: ReplyTo;
+  uploaded?: boolean;
 };
+
+const REACTION_EMOJIS = ["❤️", "🔥", "💀", "😂", "🤔", "🟢", "👍", "🙄"];
 
 const MOOD_LABEL: Record<Mood, string> = {
   chill: "רגוע",
@@ -90,8 +100,12 @@ export default function Page() {
   const [installDismissed, setInstallDismissed] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [replyTarget, setReplyTarget] = useState<ReplyTo | null>(null);
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
   const lastSeenIdRef = useRef<string | null>(null);
   const scrolledToTargetRef = useRef(false);
 
@@ -254,10 +268,12 @@ export default function Page() {
           text: trimmed,
           authorId: self.id,
           authorName: self.display,
+          replyTo: replyTarget,
         }),
       });
       const data = (await res.json()) as { messages?: RoomMsg[] };
       if (Array.isArray(data.messages)) setMessages(data.messages);
+      setReplyTarget(null);
     } catch {
       // silent — next poll resyncs
     } finally {
@@ -364,6 +380,75 @@ export default function Page() {
     }
   }
 
+  async function react(msgId: string, emoji: string) {
+    if (!self) return;
+    setReactionPickerFor(null);
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msgId) return m;
+        const r = { ...(m.reactions ?? {}) };
+        const cur = r[emoji] ?? [];
+        if (cur.includes(self.id)) {
+          const next = cur.filter((u) => u !== self.id);
+          if (next.length === 0) delete r[emoji];
+          else r[emoji] = next;
+        } else {
+          r[emoji] = [...cur, self.id];
+        }
+        return { ...m, reactions: Object.keys(r).length ? r : undefined };
+      }),
+    );
+    try {
+      await fetch("/api/room/react", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ msgId, userId: self.id, emoji }),
+      });
+    } catch {
+      // optimistic; next poll will resync
+    }
+  }
+
+  function startReply(msg: RoomMsg) {
+    if (!msg.author && msg.role !== "bot") return;
+    const snippet =
+      (msg.image?.prompt && `🎨 ${msg.image.prompt}`) ||
+      (msg.text ?? "תמונה");
+    setReplyTarget({
+      id: msg.id,
+      authorName: msg.author?.name ?? "המסטולון",
+      snippet: snippet.slice(0, 140),
+    });
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  async function uploadPhoto(file: File) {
+    if (!self) return;
+    if (uploading) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("authorId", self.id);
+    fd.append("authorName", self.display);
+    if (input.trim()) fd.append("caption", input.trim());
+    if (replyTarget) fd.append("replyTo", JSON.stringify(replyTarget));
+    try {
+      const res = await fetch("/api/room/photo", {
+        method: "POST",
+        body: fd,
+      });
+      const data = (await res.json()) as { messages?: RoomMsg[] };
+      if (Array.isArray(data.messages)) setMessages(data.messages);
+      setInput("");
+      setReplyTarget(null);
+    } catch {
+      // silent
+    } finally {
+      setUploading(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  }
+
   async function refresh() {
     try {
       const res = await fetch("/api/room", { cache: "no-store" });
@@ -461,7 +546,7 @@ export default function Page() {
               חדר ציבורי
             </span>
             <span className="text-smoke-400 text-[11px]">
-              ציורים: {daily.used}/{daily.limit}
+              ציורים: {daily.used}/{daily.limit} · הודעות: {messages.length}
             </span>
           </div>
           <button
@@ -554,6 +639,22 @@ export default function Page() {
                 msg={m}
                 myUserId={self.id}
                 highlight={highlightId === m.id}
+                onReact={(emoji) => react(m.id, emoji)}
+                onReply={() => startReply(m)}
+                pickerOpen={reactionPickerFor === m.id}
+                onTogglePicker={() =>
+                  setReactionPickerFor((cur) => (cur === m.id ? null : m.id))
+                }
+                onJumpTo={(id) => {
+                  const el = document.querySelector(
+                    `[data-msg-id="${cssEscape(id)}"]`,
+                  );
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                    setHighlightId(id);
+                    setTimeout(() => setHighlightId(null), 2500);
+                  }
+                }}
               />
             ))
           )}
@@ -576,8 +677,13 @@ export default function Page() {
         onKeyDown={onKeyDown}
         onSend={() => void send(input)}
         onImagine={() => setImagineOpen(true)}
-        disabled={sending}
+        disabled={sending || uploading}
         inputRef={inputRef}
+        photoInputRef={photoInputRef}
+        replyTarget={replyTarget}
+        onCancelReply={() => setReplyTarget(null)}
+        onPhotoPicked={(file) => void uploadPhoto(file)}
+        uploading={uploading}
       />
     </div>
   );
@@ -764,14 +870,25 @@ function Bubble({
   msg,
   myUserId,
   highlight,
+  onReact,
+  onReply,
+  pickerOpen,
+  onTogglePicker,
+  onJumpTo,
 }: {
   msg: RoomMsg;
   myUserId: string;
   highlight: boolean;
+  onReact: (emoji: string) => void;
+  onReply: () => void;
+  pickerOpen: boolean;
+  onTogglePicker: () => void;
+  onJumpTo: (id: string) => void;
 }) {
   const isMe = msg.author?.id === myUserId;
   const isUser = msg.role === "user";
   const isLocal = msg.id.startsWith("local-");
+  const reactionEntries = Object.entries(msg.reactions ?? {});
 
   return (
     <div
@@ -780,11 +897,25 @@ function Bubble({
     >
       <div
         className={[
-          "max-w-[82%] sm:max-w-[70%] px-4 py-3 rounded-2xl shadow-lg leading-relaxed text-[15px] transition-shadow",
+          "relative max-w-[82%] sm:max-w-[70%] px-4 py-3 rounded-2xl shadow-lg leading-relaxed text-[15px] transition-shadow",
           isMe ? "bubble-me rounded-bl-sm" : "bubble-bot rounded-br-sm",
           highlight ? "ring-2 ring-emerald-400 shadow-emerald-500/30" : "",
         ].join(" ")}
       >
+        {msg.replyTo && (
+          <button
+            type="button"
+            onClick={() => onJumpTo(msg.replyTo!.id)}
+            className="block w-full text-right mb-2 px-2.5 py-1.5 rounded-lg bg-smoke-950/40 border-r-2 border-emerald-400/70 hover:bg-smoke-950/60 transition"
+          >
+            <div className="text-[11px] text-emerald-300 font-semibold">
+              {msg.replyTo.authorName}
+            </div>
+            <div className="text-[12px] text-smoke-300/80 truncate">
+              {msg.replyTo.snippet}
+            </div>
+          </button>
+        )}
         {isUser && msg.author && !isMe && (
           <div className="text-[11px] text-smoke-100/90 font-semibold mb-1">
             {msg.author.name}
@@ -832,17 +963,73 @@ function Bubble({
           <div className="whitespace-pre-wrap">{renderMentions(msg.text)}</div>
         )}
 
+        {reactionEntries.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {reactionEntries.map(([emoji, ids]) => {
+              const mine = ids.includes(myUserId);
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => onReact(emoji)}
+                  className={[
+                    "text-xs px-2 py-0.5 rounded-full border transition flex items-center gap-1",
+                    mine
+                      ? "bg-emerald-700/60 border-emerald-400/60 text-emerald-50"
+                      : "bg-smoke-950/40 border-smoke-700/60 text-smoke-200 hover:bg-smoke-800/60",
+                  ].join(" ")}
+                >
+                  <span>{emoji}</span>
+                  <span className="text-[11px]">{ids.length}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {!isLocal && (
-          <div className="mt-1.5 flex justify-end">
+          <div className="mt-1.5 flex items-center justify-end gap-3 text-[11px] text-smoke-300/60">
+            <button
+              type="button"
+              onClick={onTogglePicker}
+              className="flex items-center gap-1 hover:text-smoke-100 transition"
+              title="הוסף אימוג'י"
+            >
+              <SmilePlus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onReply}
+              className="flex items-center gap-1 hover:text-smoke-100 transition"
+              title="השב"
+            >
+              <Reply className="w-3.5 h-3.5" />
+              השב
+            </button>
             <button
               type="button"
               onClick={() => shareDeepLink(msg)}
-              className="text-[11px] text-smoke-300/60 hover:text-smoke-100 flex items-center gap-1 transition"
+              className="flex items-center gap-1 hover:text-smoke-100 transition"
               title="שתף לוואטסאפ"
             >
               <Share2 className="w-3 h-3" />
               שתף
             </button>
+          </div>
+        )}
+
+        {pickerOpen && (
+          <div className="absolute -top-12 left-2 right-2 sm:right-auto sm:left-2 z-10 bg-smoke-900/95 border border-smoke-700/60 rounded-full px-2 py-1.5 shadow-xl glow-ring flex gap-1">
+            {REACTION_EMOJIS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => onReact(e)}
+                className="text-lg w-8 h-8 grid place-items-center rounded-full hover:bg-smoke-800/70 transition active:scale-95"
+              >
+                {e}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -1057,6 +1244,11 @@ function Composer({
   onImagine,
   disabled,
   inputRef,
+  photoInputRef,
+  replyTarget,
+  onCancelReply,
+  onPhotoPicked,
+  uploading,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -1065,6 +1257,11 @@ function Composer({
   onImagine: () => void;
   disabled: boolean;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  photoInputRef: React.RefObject<HTMLInputElement | null>;
+  replyTarget: ReplyTo | null;
+  onCancelReply: () => void;
+  onPhotoPicked: (file: File) => void;
+  uploading: boolean;
 }) {
   const [anchor, setAnchor] = useState<{
     start: number;
@@ -1110,6 +1307,27 @@ function Composer({
   return (
     <div className="fixed bottom-0 inset-x-0 z-20 border-t border-smoke-700/40 bg-smoke-950/80 backdrop-blur-md">
       <div className="max-w-3xl mx-auto px-3 sm:px-6 py-3 relative">
+        {replyTarget && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-smoke-800/60 border border-smoke-700/60 flex items-center gap-2">
+            <Reply className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] text-emerald-300 font-semibold">
+                בתגובה ל{replyTarget.authorName}
+              </div>
+              <div className="text-xs text-smoke-200 truncate">
+                {replyTarget.snippet}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onCancelReply}
+              className="p-1 rounded-md text-smoke-300/80 hover:text-smoke-100"
+              aria-label="בטל תגובה"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
         {showDropdown && (
           <div className="absolute bottom-full inset-x-3 sm:inset-x-6 mb-2 bg-smoke-900/95 border border-smoke-700/60 rounded-xl shadow-2xl overflow-hidden glow-ring max-h-64 overflow-y-auto">
             {matches.map((u) => (
@@ -1139,6 +1357,30 @@ function Composer({
           >
             <Sparkles className="w-5 h-5" />
           </button>
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            disabled={uploading}
+            className="h-12 w-12 shrink-0 rounded-full bg-smoke-800/70 hover:bg-smoke-700/80 border border-smoke-700/60 text-smoke-200 grid place-items-center transition active:scale-95 disabled:opacity-40"
+            aria-label="צרף תמונה"
+            title="צרף תמונה"
+          >
+            {uploading ? (
+              <span className="dot-typing" />
+            ) : (
+              <Paperclip className="w-5 h-5" />
+            )}
+          </button>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onPhotoPicked(f);
+            }}
+          />
           <textarea
             ref={inputRef}
             value={input}

@@ -10,6 +10,7 @@ type Body = {
   text?: unknown;
   authorId?: unknown;
   authorName?: unknown;
+  replyTo?: unknown;
 };
 
 export async function POST(req: Request): Promise<Response> {
@@ -34,12 +35,15 @@ export async function POST(req: Request): Promise<Response> {
   if (text.length > 2000)
     return Response.json({ error: "too_long" }, { status: 413 });
 
+  const replyTo = parseReplyTo(body.replyTo);
+
   const userMsg: RoomMsg = {
     id: newId(),
     ts: Date.now(),
     author: { id: authorId, name: authorName },
     role: "user",
     text,
+    ...(replyTo ? { replyTo } : {}),
   };
 
   const mentioned = /מסטולון|@bot|@מסטולון/.test(text);
@@ -69,4 +73,16 @@ export async function POST(req: Request): Promise<Response> {
   });
 
   return Response.json({ messages });
+}
+
+function parseReplyTo(
+  v: unknown,
+): { id: string; authorName: string; snippet: string } | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const id = typeof o.id === "string" ? o.id : "";
+  const authorName = typeof o.authorName === "string" ? o.authorName.slice(0, 30) : "";
+  const snippet = typeof o.snippet === "string" ? o.snippet.slice(0, 140) : "";
+  if (!id) return null;
+  return { id, authorName, snippet };
 }

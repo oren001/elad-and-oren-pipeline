@@ -25,6 +25,9 @@ export type RoomMsg = {
   text?: string;
   mood?: Mood;
   image?: ImageState;
+  reactions?: Record<string, string[]>;
+  replyTo?: { id: string; authorName: string; snippet: string };
+  uploaded?: boolean;
 };
 
 const ROOM_KEY = "room:main:msgs";
@@ -83,6 +86,28 @@ export async function patchImage(
     }
     await saveMessages(msgs);
   }
+  return msgs;
+}
+
+export async function toggleReaction(
+  msgId: string,
+  userId: string,
+  emoji: string,
+): Promise<RoomMsg[]> {
+  const msgs = await loadMessages();
+  const m = msgs.find((x) => x.id === msgId);
+  if (!m) return msgs;
+  if (!m.reactions) m.reactions = {};
+  const current = m.reactions[emoji] ?? [];
+  if (current.includes(userId)) {
+    const next = current.filter((u) => u !== userId);
+    if (next.length === 0) delete m.reactions[emoji];
+    else m.reactions[emoji] = next;
+  } else {
+    m.reactions[emoji] = [...current, userId];
+  }
+  if (Object.keys(m.reactions).length === 0) delete m.reactions;
+  await saveMessages(msgs);
   return msgs;
 }
 
