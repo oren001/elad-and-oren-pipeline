@@ -150,6 +150,43 @@ export async function deleteMessage(
   return { ok: true, messages: msgs };
 }
 
+export async function appendSystem(text: string): Promise<RoomMsg[]> {
+  const msg: RoomMsg = {
+    id: Math.random().toString(36).slice(2, 14),
+    ts: Date.now(),
+    role: "system",
+    text,
+  };
+  return appendMessages(msg);
+}
+
+const FIRST_SEEN_PREFIX = "first_seen:";
+
+export async function recordFirstSeen(userId: string): Promise<boolean> {
+  const kv = getKv();
+  if (!kv) return false;
+  const existing = await kv.get(FIRST_SEEN_PREFIX + userId);
+  if (existing) return false;
+  await kv.put(FIRST_SEEN_PREFIX + userId, String(Date.now()));
+  return true;
+}
+
+const LAST_RETURN_PREFIX = "last_return:";
+const RETURN_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+
+export async function shouldAnnounceReturn(userId: string): Promise<boolean> {
+  const kv = getKv();
+  if (!kv) return false;
+  const lastReturn = await kv.get(LAST_RETURN_PREFIX + userId);
+  if (lastReturn && Date.now() - Number(lastReturn) < RETURN_COOLDOWN_MS) {
+    return false;
+  }
+  await kv.put(LAST_RETURN_PREFIX + userId, String(Date.now()), {
+    expirationTtl: 60 * 60 * 24 * 30,
+  });
+  return true;
+}
+
 const PRESENCE_PREFIX = "presence:";
 const PRESENCE_TTL_SEC = 90;
 

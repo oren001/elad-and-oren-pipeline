@@ -119,6 +119,12 @@ export default function Page() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderStartRef = useRef<number>(0);
   const recorderTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const isAtBottomRef = useRef(true);
+  const isVisibleRef = useRef(
+    typeof document === "undefined" ? true : !document.hidden,
+  );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -131,6 +137,7 @@ export default function Page() {
       const u = getUserById(id);
       if (u) {
         setSelf(u);
+        fireSystemEvent(u.id);
         if (
           typeof window !== "undefined" &&
           "Notification" in window &&
@@ -280,17 +287,59 @@ export default function Page() {
     window.history.replaceState(null, "", window.location.pathname);
   }, [messages]);
 
-  // Scroll to bottom on new messages
   const lastMsgCountRef = useRef(0);
   useEffect(() => {
-    if (messages.length > lastMsgCountRef.current) {
-      scrollRef.current?.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth",
-      });
+    const grew = messages.length > lastMsgCountRef.current;
+    if (grew) {
+      const newOnes = messages.length - lastMsgCountRef.current;
+      if (isAtBottomRef.current) {
+        scrollRef.current?.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      } else {
+        setShowJumpToBottom(true);
+        setUnreadCount((c) => c + newOnes);
+      }
+      if (!isVisibleRef.current) {
+        setUnreadCount((c) => c + newOnes);
+      }
     }
     lastMsgCountRef.current = messages.length;
   }, [messages.length]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    function onScroll() {
+      if (!el) return;
+      const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const atBottom = dist < 80;
+      isAtBottomRef.current = atBottom;
+      if (atBottom) {
+        setShowJumpToBottom(false);
+        setUnreadCount(0);
+      }
+    }
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    function onVis() {
+      isVisibleRef.current = !document.hidden;
+      if (!document.hidden) {
+        setUnreadCount(0);
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = unreadCount > 0 ? `(${unreadCount}) הלווינים` : "הלווינים";
+  }, [unreadCount]);
 
   async function send(text: string) {
     if (!self) return;
@@ -663,6 +712,7 @@ export default function Page() {
   function pickIdentity(u: User) {
     writeSelfId(u.id);
     setSelf(u);
+    fireSystemEvent(u.id);
     requestNotificationPermission().then(async (perm) => {
       setNotifPermission(perm);
       if (perm === "granted") {
@@ -823,35 +873,60 @@ export default function Page() {
               תייג עם @ + שם כדי להתריע למישהו.
             </div>
           ) : (
-            messages.map((m) => (
-              <Bubble
-                key={m.id}
-                msg={m}
-                myUserId={self.id}
-                highlight={highlightId === m.id}
-                onReact={(emoji) => react(m.id, emoji)}
-                onReply={() => startReply(m)}
-                onEdit={() => startEdit(m)}
-                onDelete={() => deleteMsg(m)}
-                pickerOpen={reactionPickerFor === m.id}
-                onTogglePicker={() =>
-                  setReactionPickerFor((cur) => (cur === m.id ? null : m.id))
-                }
-                onJumpTo={(id) => {
-                  const el = document.querySelector(
-                    `[data-msg-id="${cssEscape(id)}"]`,
-                  );
-                  if (el) {
-                    el.scrollIntoView({ behavior: "smooth", block: "center" });
-                    setHighlightId(id);
-                    setTimeout(() => setHighlightId(null), 2500);
+            messages.map((m) =>
+              m.role === "system" ? (
+                <SystemBubble key={m.id} msg={m} />
+              ) : (
+                <Bubble
+                  key={m.id}
+                  msg={m}
+                  myUserId={self.id}
+                  highlight={highlightId === m.id}
+                  onReact={(emoji) => react(m.id, emoji)}
+                  onReply={() => startReply(m)}
+                  onEdit={() => startEdit(m)}
+                  onDelete={() => deleteMsg(m)}
+                  pickerOpen={reactionPickerFor === m.id}
+                  onTogglePicker={() =>
+                    setReactionPickerFor((cur) =>
+                      cur === m.id ? null : m.id,
+                    )
                   }
-                }}
-              />
-            ))
+                  onJumpTo={(id) => {
+                    const el = document.querySelector(
+                      `[data-msg-id="${cssEscape(id)}"]`,
+                    );
+                    if (el) {
+                      el.scrollIntoView({
+                        behavior: "smooth",
+                        block: "center",
+                      });
+                      setHighlightId(id);
+                      setTimeout(() => setHighlightId(null), 2500);
+                    }
+                  }}
+                />
+              ),
+            )
           )}
         </div>
       </main>
+
+      {showJumpToBottom && (
+        <button
+          type="button"
+          onClick={() => {
+            const el = scrollRef.current;
+            if (el)
+              el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+            setShowJumpToBottom(false);
+            setUnreadCount(0);
+          }}
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 bg-emerald-700/90 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-full shadow-2xl border border-emerald-400/40 flex items-center gap-2 active:scale-95 transition"
+        >
+          <span>↓ {unreadCount > 0 ? `${unreadCount} חדש` : "לסוף"}</span>
+        </button>
+      )}
 
       {imagineOpen && (
         <ImaginePanel
@@ -886,6 +961,14 @@ export default function Page() {
       />
     </div>
   );
+}
+
+function fireSystemEvent(userId: string): void {
+  fetch("/api/room/system", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId }),
+  }).catch(() => {});
 }
 
 async function ensurePushSubscription(userId: string): Promise<void> {
@@ -981,6 +1064,16 @@ async function pollGeneration(id: string): Promise<string> {
 
 function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+function SystemBubble({ msg }: { msg: RoomMsg }) {
+  return (
+    <div className="flex justify-center" data-msg-id={msg.id}>
+      <div className="text-[12px] px-3 py-1 rounded-full bg-emerald-900/40 border border-emerald-600/40 text-emerald-100/90">
+        {msg.text}
+      </div>
+    </div>
+  );
 }
 
 function OnlineIndicator({
