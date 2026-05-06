@@ -12,6 +12,8 @@ import { generate } from "@/lib/persona";
 import { notifyMentions } from "@/lib/notify";
 import { buildAutoPrompt } from "@/lib/auto-image";
 import { startGeneration } from "@/lib/leonardo";
+import { findMentions, USERS } from "@/lib/users";
+import { loadProfile } from "@/lib/profiles";
 
 const AUTO_IMAGE_PROBABILITY = 0.18;
 const AUTO_IMAGE_KEYWORD_BOOST = 0.5;
@@ -98,8 +100,9 @@ export async function POST(req: Request): Promise<Response> {
       if (Math.random() < boosted) {
         const cool = await shouldTriggerAutoImage();
         if (cool) {
+          const refImageId = await pickRefImageForMessage(text, authorId);
           const prompt = buildAutoPrompt(text);
-          const result = await startGeneration({ prompt, refImageId: null });
+          const result = await startGeneration({ prompt, refImageId });
           if (result.ok) {
             await incrDailyCount();
             await markAutoImageFired();
@@ -127,6 +130,24 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   return Response.json({ messages, autoImage });
+}
+
+async function pickRefImageForMessage(
+  text: string,
+  authorId: string,
+): Promise<string | null> {
+  const mentioned = findMentions(text);
+  const candidates = [...new Set([...mentioned.map((u) => u.id), authorId])];
+  for (const uid of candidates) {
+    const p = await loadProfile(uid);
+    if (p?.leonardoId) return p.leonardoId;
+  }
+  // last resort: any user with a profile
+  for (const u of USERS) {
+    const p = await loadProfile(u.id);
+    if (p?.leonardoId) return p.leonardoId;
+  }
+  return null;
 }
 
 function parseReplyTo(

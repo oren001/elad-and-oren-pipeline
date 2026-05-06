@@ -114,6 +114,10 @@ export default function Page() {
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [presence, setPresence] = useState<Record<string, number>>({});
+  const [profiles, setProfiles] = useState<Record<string, { url: string; hasRef: boolean }>>({});
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const profileFileRef = useRef<HTMLInputElement | null>(null);
+  const [profileUploading, setProfileUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -222,6 +226,62 @@ export default function Page() {
       clearInterval(id);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchProfiles = async () => {
+      try {
+        const res = await fetch("/api/user/profiles", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          profiles?: Record<string, { url: string; hasRef: boolean }>;
+        };
+        if (cancelled) return;
+        if (data.profiles) setProfiles(data.profiles);
+      } catch {
+        // silent
+      }
+    };
+    fetchProfiles();
+    const id = setInterval(fetchProfiles, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  async function uploadProfile(file: File) {
+    if (!self) return;
+    if (profileUploading) return;
+    setProfileUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("userId", self.id);
+      fd.append("file", file);
+      const res = await fetch("/api/user/profile", {
+        method: "POST",
+        body: fd,
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        photoUrl?: string;
+        leonardoLinked?: boolean;
+      };
+      if (data.ok && data.photoUrl) {
+        setProfiles((prev) => ({
+          ...prev,
+          [self.id]: {
+            url: data.photoUrl + "?t=" + Date.now(),
+            hasRef: Boolean(data.leonardoLinked),
+          },
+        }));
+        setProfileModalOpen(false);
+      }
+    } finally {
+      setProfileUploading(false);
+      if (profileFileRef.current) profileFileRef.current.value = "";
+    }
+  }
 
   useEffect(() => {
     if (!self) return;
@@ -814,14 +874,36 @@ export default function Page() {
             </span>
             <OnlineIndicator presence={presence} selfId={self.id} />
           </div>
-          <button
-            type="button"
-            onClick={switchIdentity}
-            className="text-smoke-300/80 text-xs flex items-center gap-1 hover:text-smoke-100 transition truncate mt-0.5"
-          >
-            <span className="truncate">אתה: {self.display}</span>
-            <Edit3 className="w-3 h-3 shrink-0" />
-          </button>
+          <div className="text-smoke-300/80 text-xs flex items-center gap-2 mt-0.5">
+            <button
+              type="button"
+              onClick={() => setProfileModalOpen(true)}
+              className="shrink-0 w-6 h-6 rounded-full overflow-hidden bg-smoke-800/70 border border-smoke-700/60 grid place-items-center hover:border-emerald-400/60 transition"
+              aria-label="עדכן תמונת פרופיל"
+              title="עדכן תמונת פרופיל"
+            >
+              {profiles[self.id]?.url ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={profiles[self.id]!.url}
+                  alt={self.display}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-[10px] text-smoke-200">
+                  {self.display.slice(0, 1)}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={switchIdentity}
+              className="flex items-center gap-1 hover:text-smoke-100 transition truncate"
+            >
+              <span className="truncate">אתה: {self.display}</span>
+              <Edit3 className="w-3 h-3 shrink-0" />
+            </button>
+          </div>
         </div>
         {notifPermission !== "granted" && notifPermission !== "unsupported" && (
           <button
@@ -906,6 +988,7 @@ export default function Page() {
                   key={m.id}
                   msg={m}
                   myUserId={self.id}
+                  profiles={profiles}
                   highlight={highlightId === m.id}
                   onReact={(emoji) => react(m.id, emoji)}
                   onReply={() => startReply(m)}
@@ -951,6 +1034,80 @@ export default function Page() {
         >
           <span>↓ {unreadCount > 0 ? `${unreadCount} חדש` : "לסוף"}</span>
         </button>
+      )}
+
+      {profileModalOpen && self && (
+        <div className="fixed inset-0 z-30 bg-smoke-950/70 backdrop-blur-sm grid place-items-center px-4">
+          <div className="w-full max-w-sm bg-smoke-900/95 border border-smoke-700/60 rounded-2xl p-5 shadow-2xl glow-ring">
+            <div className="flex items-center gap-2 mb-4">
+              <h2 className="text-smoke-100 font-semibold flex-1">
+                תמונת פרופיל של {self.display}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setProfileModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-smoke-800/60 text-smoke-300"
+                aria-label="סגור"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-20 h-20 rounded-full overflow-hidden bg-smoke-800/70 border border-smoke-700/60 grid place-items-center">
+                {profiles[self.id]?.url ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={profiles[self.id]!.url}
+                    alt={self.display}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-2xl text-smoke-300">
+                    {self.display.slice(0, 1)}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-smoke-300 flex-1">
+                העלה תמונה — היא תופיע ליד ההודעות שלך, ובאופן אקראי תושתל
+                לתוך תמונות שהמסטולון יוצר. דיוק הזיהוי משתפר עם פרצוף ברור
+                ותאורה טובה.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => profileFileRef.current?.click()}
+              disabled={profileUploading}
+              className="w-full h-11 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-white font-medium disabled:opacity-60 transition flex items-center justify-center gap-2"
+            >
+              {profileUploading ? (
+                <>
+                  <span className="dot-typing" />
+                  <span className="dot-typing" />
+                  <span className="dot-typing" />
+                  <span className="ms-2">מעלה...</span>
+                </>
+              ) : (
+                <>
+                  <ImageIcon className="w-4 h-4" />
+                  בחר תמונה
+                </>
+              )}
+            </button>
+            <input
+              ref={profileFileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void uploadProfile(f);
+              }}
+            />
+            <p className="text-[10px] text-smoke-400/70 mt-3 text-center">
+              עד 4MB · jpeg/png/webp
+            </p>
+          </div>
+        </div>
       )}
 
       {imagineOpen && (
@@ -1218,6 +1375,7 @@ function IdentityPicker({ onPick }: { onPick: (u: User) => void }) {
 function Bubble({
   msg,
   myUserId,
+  profiles,
   highlight,
   onReact,
   onReply,
@@ -1229,6 +1387,7 @@ function Bubble({
 }: {
   msg: RoomMsg;
   myUserId: string;
+  profiles: Record<string, { url: string; hasRef: boolean }>;
   highlight: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
@@ -1271,8 +1430,16 @@ function Bubble({
           </button>
         )}
         {isUser && msg.author && !isMe && (
-          <div className="text-[11px] text-smoke-100/90 font-semibold mb-1">
-            {msg.author.name}
+          <div className="text-[11px] text-smoke-100/90 font-semibold mb-1 flex items-center gap-1.5">
+            {msg.author.id && profiles[msg.author.id]?.url ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={profiles[msg.author.id]!.url}
+                alt={msg.author.name}
+                className="w-5 h-5 rounded-full object-cover border border-smoke-700/60"
+              />
+            ) : null}
+            <span>{msg.author.name}</span>
           </div>
         )}
 

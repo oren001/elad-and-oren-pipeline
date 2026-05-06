@@ -87,6 +87,57 @@ export async function startGeneration(opts: {
   return { ok: true, generationId };
 }
 
+const EXT_BY_MIME: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+export async function uploadInitImage(
+  bytes: ArrayBuffer,
+  mime: string,
+): Promise<string | null> {
+  const apiKey = process.env.LEONARDO_API_KEY?.trim();
+  if (!apiKey) return null;
+  const ext = EXT_BY_MIME[mime.toLowerCase()];
+  if (!ext) return null;
+
+  const initRes = await fetch(`${LEONARDO_BASE}/v1/init-image`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({ extension: ext }),
+  });
+  if (!initRes.ok) return null;
+  const initData = (await initRes.json()) as {
+    uploadInitImage?: {
+      id?: string;
+      url?: string;
+      fields?: string;
+    };
+  };
+  const upload = initData.uploadInitImage;
+  if (!upload?.id || !upload?.url || typeof upload.fields !== "string") {
+    return null;
+  }
+  let fields: Record<string, string>;
+  try {
+    fields = JSON.parse(upload.fields) as Record<string, string>;
+  } catch {
+    return null;
+  }
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  fd.append("file", new Blob([bytes], { type: mime }), `init.${ext}`);
+  const s3Res = await fetch(upload.url, { method: "POST", body: fd });
+  if (s3Res.status !== 204 && !s3Res.ok) return null;
+  return upload.id;
+}
+
 function extractGenerationId(data: unknown): string | null {
   const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
