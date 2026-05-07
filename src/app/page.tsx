@@ -415,9 +415,13 @@ export default function Page() {
     }
   }, [messages, self]);
 
-  // Resilience: if any pending image bubble is in the feed, poll Leonardo
-  // for it and finalize. Multiple clients may do this; finalize is idempotent.
+  // Resilience: poll Leonardo for any RECENT pending image and finalize.
+  // Skip pendings older than 5 min — those are stuck (Leonardo failed or
+  // we missed the window) and we mark them errored without re-polling so
+  // the client doesn't hammer the API on every page load.
   useEffect(() => {
+    const STALE_MS = 5 * 60 * 1000;
+    const now = Date.now();
     for (const m of messages) {
       const genId = m.image?.generationId;
       if (
@@ -425,10 +429,20 @@ export default function Page() {
         genId &&
         !pollingPendingRef.current.has(genId)
       ) {
+        const ageMs = now - m.ts;
+        const stale = ageMs > STALE_MS;
         pollingPendingRef.current.add(genId);
         const msgId = m.id;
         void (async () => {
           try {
+            if (stale) {
+              await fetch("/api/room/imagine/finalize", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ msgId, error: "stale" }),
+              });
+              return;
+            }
             const url = await pollGeneration(genId);
             await fetch("/api/room/imagine/finalize", {
               method: "POST",
