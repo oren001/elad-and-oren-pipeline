@@ -138,6 +138,8 @@ export default function Page() {
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [presence, setPresence] = useState<Record<string, number>>({});
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchAttempts, setFetchAttempts] = useState(0);
   const [profiles, setProfiles] = useState<Record<string, { url: string; hasRef: boolean }>>({});
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const profileFileRef = useRef<HTMLInputElement | null>(null);
@@ -308,24 +310,29 @@ export default function Page() {
     async function fetchOnce() {
       try {
         const res = await fetch("/api/room", { cache: "no-store" });
-        if (!res.ok) return;
+        setFetchAttempts((n) => n + 1);
+        if (!res.ok) {
+          setFetchError(`HTTP ${res.status}`);
+          return;
+        }
         const data = (await res.json()) as {
           messages?: RoomMsg[];
           daily?: { used: number; limit: number };
           presence?: Record<string, number>;
         };
         if (cancelled) return;
+        setFetchError(null);
         if (Array.isArray(data.messages)) {
           setMessages((prev) => {
-            // Don't blow away existing history if KV momentarily returns empty
             if (data.messages!.length === 0 && prev.length > 0) return prev;
             return data.messages!;
           });
         }
         if (data.daily) setDaily(data.daily);
         if (data.presence) setPresence(data.presence);
-      } catch {
-        // silent
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "fetch failed";
+        setFetchError(msg);
       }
     }
     fetchOnce();
@@ -1349,9 +1356,28 @@ export default function Page() {
         >
           {messages.length === 0 ? (
             <div className="text-center text-smoke-300/70 text-sm py-12 px-6">
-              עדיין שקט פה. תכתוב משהו, או לחץ על ✨ כדי לצייר.
-              <br />
-              תייג עם @ + שם כדי להתריע למישהו.
+              {fetchAttempts === 0 ? (
+                <span>טוען הודעות...</span>
+              ) : fetchError ? (
+                <>
+                  <div className="text-red-300 font-semibold mb-2">
+                    שגיאת טעינה
+                  </div>
+                  <div className="text-xs">{fetchError}</div>
+                  <div className="text-[11px] text-smoke-400 mt-2">
+                    ניסיונות: {fetchAttempts}
+                  </div>
+                </>
+              ) : (
+                <>
+                  עדיין שקט פה. תכתוב משהו, או לחץ על ✨ כדי לצייר.
+                  <br />
+                  תייג עם @ + שם כדי להתריע למישהו.
+                  <div className="text-[10px] text-smoke-500/60 mt-3">
+                    שרת: {fetchAttempts} ניסיונות, ללא שגיאה
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             messages.map((m, i) => {
