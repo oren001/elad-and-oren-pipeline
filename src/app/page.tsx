@@ -1164,10 +1164,7 @@ export default function Page() {
   const imagining = messages.some((m) => m.image?.status === "pending");
 
   return (
-    <div
-      className="relative w-full overflow-hidden flex flex-col h-screen"
-      style={{ height: "100dvh" }}
-    >
+    <div className="relative min-h-screen w-full overflow-hidden">
       <SmokeBackdrop />
 
       <header
@@ -1305,7 +1302,7 @@ export default function Page() {
         <IosInstallGuide onClose={() => setShowIosGuide(false)} />
       )}
 
-      <main className="relative z-10 flex-1 min-h-0 overflow-hidden">
+      <main className="relative z-10 max-w-3xl mx-auto px-3 sm:px-6 pt-3 pb-32">
         {showJumpToBottom && (
           <button
             type="button"
@@ -1316,14 +1313,14 @@ export default function Page() {
               setShowJumpToBottom(false);
               setUnreadCount(0);
             }}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 bg-emerald-700/90 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-full shadow-2xl border border-emerald-400/40 flex items-center gap-2 active:scale-95 transition"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 bg-emerald-700/90 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-full shadow-2xl border border-emerald-400/40 flex items-center gap-2 active:scale-95 transition"
           >
             <span>↓ {unreadCount > 0 ? `${unreadCount} חדש` : "לסוף"}</span>
           </button>
         )}
         <div
           ref={scrollRef}
-          className="h-full overflow-y-auto px-3 sm:px-6 pt-3 pb-3 max-w-3xl mx-auto space-y-3"
+          className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-1"
         >
           {messages.length === 0 ? (
             <div className="text-center text-smoke-300/70 text-sm py-12 px-6">
@@ -3198,7 +3195,7 @@ function Composer({
   const showDropdown = anchor !== null && matches.length > 0;
 
   return (
-    <div className="relative shrink-0 z-20 border-t border-smoke-700/40 bg-smoke-950/80 backdrop-blur-md">
+    <div className="fixed bottom-0 inset-x-0 z-20 border-t border-smoke-700/40 bg-smoke-950/80 backdrop-blur-md">
       <div className="max-w-3xl mx-auto px-3 sm:px-6 py-3 relative">
         {editing && (
           <div className="mb-2 px-3 py-2 rounded-xl bg-amber-900/40 border border-amber-600/40 flex items-center gap-2">
