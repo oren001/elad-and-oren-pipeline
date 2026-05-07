@@ -7,3 +7,5 @@ drizzle/
 
 .vercel
 .env*.local
+package-lock.json
+tsconfig.tsbuildinfo
