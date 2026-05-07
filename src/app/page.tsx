@@ -290,7 +290,13 @@ export default function Page() {
           presence?: Record<string, number>;
         };
         if (cancelled) return;
-        if (Array.isArray(data.messages)) setMessages(data.messages);
+        if (Array.isArray(data.messages)) {
+          setMessages((prev) => {
+            // Don't blow away existing history if KV momentarily returns empty
+            if (data.messages!.length === 0 && prev.length > 0) return prev;
+            return data.messages!;
+          });
+        }
         if (data.daily) setDaily(data.daily);
         if (data.presence) setPresence(data.presence);
       } catch {
@@ -1047,7 +1053,12 @@ export default function Page() {
         messages?: RoomMsg[];
         daily?: { used: number; limit: number };
       };
-      if (Array.isArray(data.messages)) setMessages(data.messages);
+      if (Array.isArray(data.messages)) {
+        setMessages((prev) => {
+          if (data.messages!.length === 0 && prev.length > 0) return prev;
+          return data.messages!;
+        });
+      }
       if (data.daily) setDaily(data.daily);
     } catch {
       // silent
