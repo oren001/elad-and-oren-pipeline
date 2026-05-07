@@ -234,6 +234,31 @@ export default function Page() {
     }
 
     if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("reset")) {
+        try {
+          localStorage.clear();
+        } catch {}
+        try {
+          sessionStorage.clear();
+        } catch {}
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker
+            .getRegistrations()
+            .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+            .catch(() => {});
+        }
+        if ("caches" in window) {
+          caches
+            .keys()
+            .then((names) => Promise.all(names.map((n) => caches.delete(n))))
+            .catch(() => {});
+        }
+        setTimeout(() => {
+          window.location.replace("/");
+        }, 600);
+        return;
+      }
       const host = window.location.hostname;
       const previewMatch = host.match(
         /^([a-f0-9]{6,})\.mastulon-chat\.pages\.dev$/i,
