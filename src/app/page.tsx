@@ -233,6 +233,25 @@ export default function Page() {
       }
     }
 
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      const previewMatch = host.match(
+        /^([a-f0-9]{6,})\.mastulon-chat\.pages\.dev$/i,
+      );
+      if (previewMatch) {
+        const next = new URL(window.location.href);
+        next.hostname = "mastulon-chat.pages.dev";
+        next.searchParams.delete("v");
+        window.location.replace(next.toString());
+        return;
+      }
+      if (window.location.search.includes("v=")) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("v");
+        window.history.replaceState(null, "", url.toString());
+      }
+    }
+
     const storedTheme = readStoredTheme();
     if (storedTheme) {
       setThemeId(storedTheme);
