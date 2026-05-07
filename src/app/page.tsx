@@ -1150,7 +1150,10 @@ export default function Page() {
   const imagining = messages.some((m) => m.image?.status === "pending");
 
   return (
-    <div className="relative w-full overflow-hidden flex flex-col h-[100dvh]">
+    <div
+      className="relative w-full overflow-hidden flex flex-col h-screen"
+      style={{ height: "100dvh" }}
+    >
       <SmokeBackdrop />
 
       <header

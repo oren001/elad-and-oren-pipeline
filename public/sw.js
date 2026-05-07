@@ -1,6 +1,6 @@
 /* halviinim service worker */
 
-const CACHE = "halviinim-v3-round2";
+const CACHE = "halviinim-v5-layout-fix";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
