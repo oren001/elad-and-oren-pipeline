@@ -713,6 +713,30 @@ export default function Page() {
     });
   }
 
+  async function imagineFromMessage(msg: RoomMsg) {
+    if (!self) return;
+    const src =
+      msg.text || msg.image?.prompt || msg.voice?.transcript || "";
+    const trimmed = src.trim();
+    if (!trimmed) return;
+    const author = msg.author?.name ?? "המסטולון";
+    const prompt = `@${author} ${trimmed}`;
+    try {
+      await fetch("/api/room/imagine", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          authorId: self.id,
+          authorName: self.display,
+        }),
+      });
+      await refresh();
+    } catch {
+      // silent — pending image will resolve via universal poller
+    }
+  }
+
   function startEdit(msg: RoomMsg) {
     if (!msg.text) return;
     setEditingId(msg.id);
@@ -1270,6 +1294,7 @@ export default function Page() {
                       )
                     }
                     onOpenImage={() => openLightbox(m.id)}
+                    onMakeImage={() => void imagineFromMessage(m)}
                     onJumpTo={(id) => {
                       const el = document.querySelector(
                         `[data-msg-id="${cssEscape(id)}"]`,
@@ -2341,6 +2366,7 @@ function Bubble({
   pickerOpen,
   onTogglePicker,
   onOpenImage,
+  onMakeImage,
   onJumpTo,
 }: {
   msg: RoomMsg;
@@ -2354,6 +2380,7 @@ function Bubble({
   pickerOpen: boolean;
   onTogglePicker: () => void;
   onOpenImage: () => void;
+  onMakeImage: () => void;
   onJumpTo: (id: string) => void;
 }) {
   const isMe = msg.author?.id === myUserId;
@@ -2516,6 +2543,17 @@ function Bubble({
             >
               <Reply className="w-3.5 h-3.5" />
             </button>
+            {(msg.text || msg.image?.prompt || msg.voice?.transcript) && (
+              <button
+                type="button"
+                onClick={onMakeImage}
+                className="p-1 rounded-md hover:bg-emerald-500/15 text-emerald-300"
+                title="צייר תמונה מההודעה"
+                aria-label="צייר תמונה מההודעה"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => shareDeepLink(msg)}
