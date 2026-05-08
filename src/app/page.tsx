@@ -140,6 +140,16 @@ export default function Page() {
   const [presence, setPresence] = useState<Record<string, number>>({});
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [fetchAttempts, setFetchAttempts] = useState(0);
+  const [diag, setDiag] = useState<{
+    lastUrl?: string;
+    lastStatus?: number;
+    lastCacheControl?: string;
+    lastBytes?: number;
+    lastMs?: number;
+    lastAt?: number;
+    swState?: string;
+    msgCount?: number;
+  }>({});
   const [profiles, setProfiles] = useState<Record<string, { url: string; hasRef: boolean }>>({});
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const profileFileRef = useRef<HTMLInputElement | null>(null);
@@ -313,24 +323,59 @@ export default function Page() {
       inflight = true;
       const ac = new AbortController();
       const timeoutId = setTimeout(() => ac.abort(), 8000);
+      const url = `/api/room?t=${Date.now()}`;
+      const t0 = performance.now();
       try {
-        const res = await fetch(`/api/room?t=${Date.now()}`, {
+        const res = await fetch(url, {
           cache: "no-store",
           signal: ac.signal,
           headers: { "cache-control": "no-cache", pragma: "no-cache" },
         });
         setFetchAttempts((n) => n + 1);
+        const cc = res.headers.get("cache-control") || "";
         if (!res.ok) {
           setFetchError(`HTTP ${res.status}`);
+          setDiag((d) => ({
+            ...d,
+            lastUrl: url,
+            lastStatus: res.status,
+            lastCacheControl: cc,
+            lastAt: Date.now(),
+            lastMs: Math.round(performance.now() - t0),
+          }));
           return;
         }
-        const data = (await res.json()) as {
+        const text = await res.text();
+        const bytes = text.length;
+        let data: {
           messages?: RoomMsg[];
           daily?: { used: number; limit: number };
           presence?: Record<string, number>;
         };
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          setFetchError(
+            `parse: ${
+              parseErr instanceof Error ? parseErr.message : "bad json"
+            }`,
+          );
+          setDiag((d) => ({
+            ...d,
+            lastUrl: url,
+            lastStatus: res.status,
+            lastCacheControl: cc,
+            lastBytes: bytes,
+            lastAt: Date.now(),
+            lastMs: Math.round(performance.now() - t0),
+          }));
+          return;
+        }
         if (cancelled) return;
         setFetchError(null);
+        const incomingCount = Array.isArray(data.messages)
+          ? data.messages.length
+          : -1;
         if (Array.isArray(data.messages)) {
           setMessages((prev) => {
             if (data.messages!.length === 0 && prev.length > 0) return prev;
@@ -339,6 +384,16 @@ export default function Page() {
         }
         if (data.daily) setDaily(data.daily);
         if (data.presence) setPresence(data.presence);
+        setDiag((d) => ({
+          ...d,
+          lastUrl: url,
+          lastStatus: res.status,
+          lastCacheControl: cc,
+          lastBytes: bytes,
+          lastMs: Math.round(performance.now() - t0),
+          lastAt: Date.now(),
+          msgCount: incomingCount,
+        }));
       } catch (err) {
         const msg =
           err instanceof Error
@@ -347,6 +402,12 @@ export default function Page() {
               : err.message
             : "fetch failed";
         setFetchError(msg);
+        setDiag((d) => ({
+          ...d,
+          lastUrl: url,
+          lastAt: Date.now(),
+          lastMs: Math.round(performance.now() - t0),
+        }));
       } finally {
         clearTimeout(timeoutId);
         inflight = false;
@@ -358,6 +419,24 @@ export default function Page() {
       cancelled = true;
       clearInterval(id);
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+      setDiag((d) => ({ ...d, swState: "unsupported" }));
+      return;
+    }
+    const update = () => {
+      const ctrl = navigator.serviceWorker.controller;
+      setDiag((d) => ({
+        ...d,
+        swState: ctrl ? `ctrl:${ctrl.state}` : "no-controller",
+      }));
+    };
+    update();
+    navigator.serviceWorker.addEventListener("controllerchange", update);
+    return () =>
+      navigator.serviceWorker.removeEventListener("controllerchange", update);
   }, []);
 
   useEffect(() => {
@@ -1412,6 +1491,42 @@ export default function Page() {
                   <br />
                   תייג עם @ + שם כדי להתריע למישהו.
                 </>
+              )}
+              {fetchAttempts > 0 && (
+                <div
+                  dir="ltr"
+                  className="mt-4 mx-auto max-w-md text-left text-[10px] leading-relaxed font-mono text-smoke-400/80 bg-black/30 rounded-lg p-3 border border-white/5"
+                >
+                  <div className="text-emerald-300/80 font-semibold mb-1">
+                    diag
+                  </div>
+                  <div>
+                    build: {process.env.NEXT_PUBLIC_BUILD_SHA?.slice(0, 7) ?? "dev"}
+                  </div>
+                  <div>
+                    sw: {diag.swState ?? "?"}
+                  </div>
+                  <div>attempts: {fetchAttempts}</div>
+                  <div>
+                    last: {diag.lastStatus ?? "-"} · {diag.lastBytes ?? 0}b ·
+                    {" "}
+                    {diag.lastMs ?? 0}ms
+                  </div>
+                  <div className="break-all">
+                    cc: {diag.lastCacheControl || "(none)"}
+                  </div>
+                  <div>
+                    msgs in resp: {diag.msgCount ?? "-"}
+                  </div>
+                  {diag.lastAt && (
+                    <div>
+                      at: {new Date(diag.lastAt).toLocaleTimeString()}
+                    </div>
+                  )}
+                  {fetchError && (
+                    <div className="text-red-300">err: {fetchError}</div>
+                  )}
+                </div>
               )}
             </div>
           ) : (
