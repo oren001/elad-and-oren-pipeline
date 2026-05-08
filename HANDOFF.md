@@ -1,6 +1,6 @@
 # הלווינים — Handoff Brief
 
-Updated: 2026-05-08
+Updated: 2026-05-08 (post `9f1c498` — edge-cache fix)
 
 ## What this is
 
@@ -86,25 +86,32 @@ with KV binding → `wrangler pages deploy` → live at mastulon-chat.pages.dev.
 **Chat appears "stuck" / messages don't render** on some devices even
 though `/api/room` returns 50+ messages correctly when hit directly.
 Symptoms: page renders header + composer + empty state, message count
-stays at 0 across refreshes for 20+ seconds. Affects at least two
-users (Oren, Eran).
+stays at 0 across refreshes for 20+ seconds (user reported up to 12
+minutes). Affects at least two users (Oren, Eran).
 
-Things tried, none conclusive:
+Things tried:
 - KV stale-empty tolerance (don't blow away `prev` on empty response)
-- Stale pending image cleanup (mark errored after 5 min so polling
-  doesn't hammer Leonardo)
-- Reverted layout from flex/h-dvh back to `min-h-screen` + fixed composer
-- SW cache version bumped (halviinim-v6-rollback)
-- `?reset=1` panic button
-- `?t=fresh*` URL cache buster
-- Surface fetch errors + attempt count in empty-state UI (commit `f0cef64`)
+- Stale pending image cleanup (mark errored after 5 min)
+- Layout rolled back to `min-h-screen` + fixed composer
+- SW cache versions bumped through v7
+- `?reset=1` panic button + `?t=fresh*` URL cache buster
+- Surface fetch errors + attempt count in empty-state UI (`f0cef64`)
+- **Latest fix `9f1c498`: defeat CF edge cache** with explicit
+  `cache-control: no-store` + `cdn-cache-control: no-store` +
+  `cloudflare-cdn-cache-control: no-store` + `pragma: no-cache` on
+  `/api/room`; client adds `?t=<now>` cache-buster, 8s AbortController
+  timeout, and an inflight guard so a hung fetch can't starve the loop;
+  SW v7 wipes all old caches on activate and intercepts `/api/*` GETs
+  with `{cache: "no-store"}`; empty state after 3 attempts shows an
+  explicit "full reset" button.
 
-Latest deploy as of this writing is `f0cef64` (or possibly later if
-work continued). The diagnostic commit shows `שגיאת טעינה` with HTTP
-code, or `שרת: N ניסיונות, ללא שגיאה`, depending on what's failing.
+After the `9f1c498` push, user reported "Stuck again" — possible causes
+still in play: (a) deploy hadn't propagated, (b) the old SW on their
+device hadn't been replaced yet (SW activation lags one navigation),
+(c) a different root cause we haven't isolated.
 
 User has NOT pasted the on-screen diagnostic text. They keep saying
-"stuck" without specifying what the empty-state actually says now.
+"stuck" without specifying what the empty-state actually says.
 
 ## Recommended first steps for the next agent
 
