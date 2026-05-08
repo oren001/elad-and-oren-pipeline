@@ -307,9 +307,18 @@ export default function Page() {
 
   useEffect(() => {
     let cancelled = false;
+    let inflight = false;
     async function fetchOnce() {
+      if (inflight) return;
+      inflight = true;
+      const ac = new AbortController();
+      const timeoutId = setTimeout(() => ac.abort(), 8000);
       try {
-        const res = await fetch("/api/room", { cache: "no-store" });
+        const res = await fetch(`/api/room?t=${Date.now()}`, {
+          cache: "no-store",
+          signal: ac.signal,
+          headers: { "cache-control": "no-cache", pragma: "no-cache" },
+        });
         setFetchAttempts((n) => n + 1);
         if (!res.ok) {
           setFetchError(`HTTP ${res.status}`);
@@ -331,8 +340,16 @@ export default function Page() {
         if (data.daily) setDaily(data.daily);
         if (data.presence) setPresence(data.presence);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "fetch failed";
+        const msg =
+          err instanceof Error
+            ? err.name === "AbortError"
+              ? "timeout"
+              : err.message
+            : "fetch failed";
         setFetchError(msg);
+      } finally {
+        clearTimeout(timeoutId);
+        inflight = false;
       }
     }
     fetchOnce();
@@ -1367,15 +1384,33 @@ export default function Page() {
                   <div className="text-[11px] text-smoke-400 mt-2">
                     ניסיונות: {fetchAttempts}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => window.location.replace("/?reset=1")}
+                    className="mt-3 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs"
+                  >
+                    איפוס מלא וטעינה מחדש
+                  </button>
+                </>
+              ) : fetchAttempts > 2 ? (
+                <>
+                  <span>החדר ריק או עדיין נטען...</span>
+                  <div className="text-[10px] text-smoke-500/60 mt-3">
+                    שרת: {fetchAttempts} ניסיונות
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => window.location.replace("/?reset=1")}
+                    className="mt-3 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs"
+                  >
+                    איפוס מלא וטעינה מחדש
+                  </button>
                 </>
               ) : (
                 <>
                   עדיין שקט פה. תכתוב משהו, או לחץ על ✨ כדי לצייר.
                   <br />
                   תייג עם @ + שם כדי להתריע למישהו.
-                  <div className="text-[10px] text-smoke-500/60 mt-3">
-                    שרת: {fetchAttempts} ניסיונות, ללא שגיאה
-                  </div>
                 </>
               )}
             </div>

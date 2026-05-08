@@ -1,17 +1,29 @@
 /* halviinim service worker */
 
-const CACHE = "halviinim-v6-rollback";
+const CACHE = "halviinim-v7-nocache";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      caches.keys().then((names) =>
+        Promise.all(names.map((n) => caches.delete(n))),
+      ),
+    ]),
+  );
 });
 
-self.addEventListener("fetch", () => {
-  // pass through; PWA shell only
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.pathname.startsWith("/api/")) {
+    e.respondWith(fetch(req, { cache: "no-store" }));
+  }
 });
 
 self.addEventListener("push", (e) => {

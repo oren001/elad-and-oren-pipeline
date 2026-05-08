@@ -13,9 +13,20 @@ export async function GET(): Promise<Response> {
     readDailyCount(),
     readPresence(),
   ]);
-  return Response.json({
-    messages,
-    daily: { used, limit: DAILY_LIMIT },
-    presence,
-  });
+  return new Response(
+    JSON.stringify({
+      messages,
+      daily: { used, limit: DAILY_LIMIT },
+      presence,
+    }),
+    {
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+        "cdn-cache-control": "no-store",
+        "cloudflare-cdn-cache-control": "no-store",
+        pragma: "no-cache",
+      },
+    },
+  );
 }
