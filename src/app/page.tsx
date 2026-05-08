@@ -321,6 +321,7 @@ export default function Page() {
     async function fetchOnce() {
       if (inflight) return;
       inflight = true;
+      setFetchAttempts((n) => n + 1);
       const ac = new AbortController();
       const timeoutId = setTimeout(() => ac.abort(), 8000);
       const url = `/api/room?t=${Date.now()}`;
@@ -331,7 +332,6 @@ export default function Page() {
           signal: ac.signal,
           headers: { "cache-control": "no-cache", pragma: "no-cache" },
         });
-        setFetchAttempts((n) => n + 1);
         const cc = res.headers.get("cache-control") || "";
         if (!res.ok) {
           setFetchError(`HTTP ${res.status}`);
@@ -1453,7 +1453,7 @@ export default function Page() {
           {messages.length === 0 ? (
             <div className="text-center text-smoke-300/70 text-sm py-12 px-6">
               {fetchAttempts === 0 ? (
-                <span>טוען הודעות...</span>
+                <span>אתחול...</span>
               ) : fetchError ? (
                 <>
                   <div className="text-red-300 font-semibold mb-2">
@@ -1492,42 +1492,53 @@ export default function Page() {
                   תייג עם @ + שם כדי להתריע למישהו.
                 </>
               )}
-              {fetchAttempts > 0 && (
-                <div
-                  dir="ltr"
-                  className="mt-4 mx-auto max-w-md text-left text-[10px] leading-relaxed font-mono text-smoke-400/80 bg-black/30 rounded-lg p-3 border border-white/5"
-                >
-                  <div className="text-emerald-300/80 font-semibold mb-1">
-                    diag
-                  </div>
-                  <div>
-                    build: {process.env.NEXT_PUBLIC_BUILD_SHA?.slice(0, 7) ?? "dev"}
-                  </div>
-                  <div>
-                    sw: {diag.swState ?? "?"}
-                  </div>
-                  <div>attempts: {fetchAttempts}</div>
-                  <div>
-                    last: {diag.lastStatus ?? "-"} · {diag.lastBytes ?? 0}b ·
-                    {" "}
-                    {diag.lastMs ?? 0}ms
-                  </div>
-                  <div className="break-all">
-                    cc: {diag.lastCacheControl || "(none)"}
-                  </div>
-                  <div>
-                    msgs in resp: {diag.msgCount ?? "-"}
-                  </div>
-                  {diag.lastAt && (
-                    <div>
-                      at: {new Date(diag.lastAt).toLocaleTimeString()}
-                    </div>
-                  )}
-                  {fetchError && (
-                    <div className="text-red-300">err: {fetchError}</div>
-                  )}
+              <div
+                dir="ltr"
+                className="mt-4 mx-auto max-w-md text-left text-[10px] leading-relaxed font-mono text-smoke-400/80 bg-black/30 rounded-lg p-3 border border-white/5"
+              >
+                <div className="text-emerald-300/80 font-semibold mb-1">
+                  diag
                 </div>
-              )}
+                <div>
+                  build: {process.env.NEXT_PUBLIC_BUILD_SHA?.slice(0, 7) ?? "dev"}
+                </div>
+                <div>sw: {diag.swState ?? "?"}</div>
+                <div>attempts: {fetchAttempts}</div>
+                <div>
+                  last: {diag.lastStatus ?? "-"} · {diag.lastBytes ?? 0}b ·{" "}
+                  {diag.lastMs ?? 0}ms
+                </div>
+                <div className="break-all">
+                  cc: {diag.lastCacheControl || "(none)"}
+                </div>
+                <div>msgs in resp: {diag.msgCount ?? "-"}</div>
+                {diag.lastAt && (
+                  <div>
+                    at: {new Date(diag.lastAt).toLocaleTimeString()}
+                  </div>
+                )}
+                {fetchError && (
+                  <div className="text-red-300">err: {fetchError}</div>
+                )}
+                <div className="mt-2 flex gap-2 flex-wrap">
+                  <a
+                    href="/api/room"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-300 underline"
+                  >
+                    open /api/room
+                  </a>
+                  <a
+                    href="/api/debug"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-300 underline"
+                  >
+                    open /api/debug
+                  </a>
+                </div>
+              </div>
             </div>
           ) : (
             messages.map((m, i) => {
